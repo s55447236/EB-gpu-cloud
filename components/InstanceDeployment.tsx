@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   ChevronLeft, 
@@ -81,7 +80,7 @@ const ADVANCED_IMAGES: Record<string, ImageItem[]> = {
 };
 
 const STORAGE_TYPES = [
-  { id: 'block', name: '高性能云盘 (SSD)', icon: <Database size={16} />, desc: '持久化块存储，支持快照，极高性能', color: 'blue', unitPrice: 0.005, badge: 'BLOCK' },
+  { id: 'block', name: '云硬盘（块存储）', icon: <Database size={16} />, desc: '持久化块存储，支持快照，极高性能', color: 'blue', unitPrice: 0.005, badge: 'BLOCK' },
   { id: 'nas_ssd', name: '共享存储 (SSD)', icon: <Share2 size={16} />, desc: '全闪架构共享存储，适合高并发读写', color: 'indigo', unitPrice: 0.01, badge: 'SSD' },
   { id: 'nas_hdd', name: '共享存储 (HDD)', icon: <HardDrive size={16} />, desc: '大容量低成本共享存储，适合模型仓库', color: 'slate', unitPrice: 0.004, badge: 'HDD' },
   { id: 'baidu', name: '百度网盘 (Netdisk)', icon: <Cloud size={16} />, desc: '直连网盘，支持模型/资源高速同步', color: 'cyan', unitPrice: 0, badge: 'NET' },
@@ -90,7 +89,7 @@ const STORAGE_TYPES = [
 
 const PARTITIONS = [
   { id: 'hb1', name: '华北一区', desc: '推荐分区' },
-  { id: 'hb2', name: '华北二区', desc: 'A800专区' },
+  { id: 'hb2', name: '华北一区', desc: 'A800专区' },
   { id: 'hd1', name: '华东一区', desc: '4090专区' },
 ];
 
@@ -426,4 +425,249 @@ const InstanceDeployment: React.FC<InstanceDeploymentProps> = ({ onBack }) => {
                     <h5 className="text-sm font-bold text-gray-800">系统盘 (Root SSD)</h5>
                     <div className="flex items-center space-x-4 mt-1 text-xs text-gray-400">
                       <span className="flex items-center">
-                        挂载点: <span className="bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded font-mono
+                        挂载点: <span className="bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded font-mono ml-1">/</span>
+                      </span>
+                      <span>|</span>
+                      <span>空间: 30GB</span>
+                      <span>|</span>
+                      <span className="text-blue-500 font-bold">免费赠送</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="px-3 py-1 bg-blue-50 text-blue-600 text-[10px] font-bold rounded-md uppercase tracking-widest border border-blue-100">DEFAULT</div>
+              </div>
+
+              {/* Added Dynamic Disks (Newly created) */}
+              {extraStorage.map(storage => {
+                const typeInfo = STORAGE_TYPES.find(t => t.id === storage.type);
+                const currentPrice = (storage.size * (typeInfo?.unitPrice || 0)).toFixed(3);
+                
+                return (
+                  <div key={storage.id} className="group relative bg-white rounded-2xl border border-gray-100 shadow-sm hover:border-blue-200 transition-all overflow-hidden animate-in slide-in-from-right-4">
+                    <div className="flex flex-col md:flex-row md:items-center justify-between p-5 space-y-4 md:space-y-0">
+                      <div className="flex items-start space-x-4">
+                        <div className={`p-3 rounded-2xl bg-gray-50 text-gray-600 group-hover:bg-blue-50 group-hover:text-blue-600 transition-colors`}>
+                          {typeInfo?.icon}
+                        </div>
+                        <div className="flex-1">
+                          <div className="flex items-center space-x-2">
+                            {/* Editable Name Input for New Disks */}
+                            <input 
+                              type="text"
+                              value={storage.name}
+                              onChange={(e) => updateStorageName(storage.id, e.target.value)}
+                              className="text-sm font-bold text-gray-800 bg-transparent border-b border-transparent hover:border-blue-200 focus:border-blue-500 focus:outline-none transition-colors px-1 -ml-1"
+                              placeholder="磁盘名称"
+                            />
+                            <span className="text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded font-bold uppercase tracking-tight">{typeInfo?.badge}</span>
+                          </div>
+                          <div className="flex items-center space-x-2 mt-2">
+                            <span className="text-xs text-gray-400">挂载至:</span>
+                            <div className="bg-blue-50/50 border border-blue-100/50 rounded-lg px-2 py-1 flex items-center">
+                              <span className="text-blue-600 font-mono text-[11px]">{storage.mountPath}</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-end space-x-8">
+                        {storage.type !== 'baidu' && (
+                          <div className="flex flex-col items-end">
+                            <div className="flex items-center space-x-3 bg-gray-50 p-1 rounded-xl border border-gray-100">
+                              <span className="text-xs font-bold text-gray-400 px-2 uppercase tracking-tighter">容量:</span>
+                              <div className="flex items-center bg-white rounded-lg border border-gray-200 pr-2">
+                                <input 
+                                  type="number" 
+                                  value={storage.size}
+                                  onChange={(e) => {
+                                    const newS = extraStorage.map(s => s.id === storage.id ? {...s, size: parseInt(e.target.value) || 0} : s);
+                                    setExtraStorage(newS);
+                                  }}
+                                  className="w-16 px-2.5 py-1.5 text-sm font-bold text-gray-800 outline-none text-right"
+                                />
+                                <span className="ml-1 text-[11px] font-black text-gray-400">GB</span>
+                              </div>
+                            </div>
+                            {typeInfo && typeInfo.unitPrice > 0 && (
+                              <p className="text-[11px] text-blue-500 font-bold mt-1.5 pr-2">预估价格: ¥{currentPrice}/h</p>
+                            )}
+                          </div>
+                        )}
+
+                        {storage.type === 'baidu' && (
+                          <div className="flex items-center space-x-3 bg-blue-50 px-4 py-2 rounded-xl">
+                            <Cloud size={16} className="text-blue-600" />
+                            <span className="text-xs font-bold text-blue-700">自动同步网盘数据</span>
+                          </div>
+                        )}
+
+                        <button 
+                          onClick={() => setExtraStorage(extraStorage.filter(s => s.id !== storage.id))}
+                          className="p-2.5 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all"
+                        >
+                          <Trash2 size={22} />
+                        </button>
+                      </div>
+                    </div>
+                    
+                    <div className="px-5 pb-5">
+                      {storage.type === 'baidu' && (
+                        <div className="flex flex-col space-y-2 bg-gray-50/30 p-4 rounded-xl border border-gray-100">
+                          <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">网盘同步设置</label>
+                          <div className="flex space-x-2">
+                            <input type="text" placeholder="/模型/SD/checkpoints" className="flex-1 text-xs p-3 bg-white border border-gray-200 rounded-xl outline-none focus:ring-1 focus:ring-blue-500" />
+                            <button className="px-4 py-2 bg-white border border-gray-200 text-blue-600 text-xs font-bold rounded-xl hover:bg-blue-50 transition-colors shadow-sm">浏览网盘</button>
+                          </div>
+                        </div>
+                      )}
+                      {(storage.type === 'nas_ssd' || storage.type === 'nas_hdd') && (
+                        <div className="flex flex-col space-y-2 bg-gray-50/30 p-4 rounded-xl border border-gray-100">
+                          <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">共享存储 ID</label>
+                          <select className="text-xs p-3 bg-white border border-gray-200 rounded-xl font-bold text-gray-600 outline-none focus:ring-1 focus:ring-blue-500">
+                            <option>nas-public-bj-01 (已挂载 12 实例)</option>
+                            <option>nas-private-custom-02</option>
+                            <option>+ 创建新存储卷</option>
+                          </select>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </section>
+
+          {/* Section 3: Images */}
+          <section className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm space-y-6">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-2">
+                <div className="bg-blue-600 p-1.5 rounded-lg text-white shadow-sm shadow-blue-100">
+                  <Box size={18} />
+                </div>
+                <h2 className="font-bold text-gray-800">3. 镜像选择与基础环境</h2>
+              </div>
+              <div className="flex space-x-1 bg-gray-100 p-1 rounded-xl">
+                {['official', 'preinstalled', 'community'].map(cat => (
+                  <button
+                    key={cat}
+                    onClick={() => setImageCategory(cat)}
+                    className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                      imageCategory === cat ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                    }`}
+                  >
+                    {cat === 'official' ? '基础镜像' : cat === 'preinstalled' ? '深度学习' : '社区应用'}
+                  </button>
+                ))}
+              </div>
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {imagesToShow.map((img: ImageItem) => (
+                <button
+                  key={img.id}
+                  onClick={() => setSelectedImage(img.id)}
+                  className={`p-4 rounded-xl border-2 flex flex-col transition-all relative ${
+                    selectedImage === img.id ? 'border-blue-600 bg-blue-50/20 shadow-sm' : 'border-gray-100 hover:border-gray-200 bg-white'
+                  }`}
+                >
+                  <div className="flex items-start justify-between">
+                    <div className="text-left">
+                      <h4 className="font-bold text-gray-900">{img.name}</h4>
+                      <p className="text-xs text-blue-500 font-medium mt-0.5">{img.version}</p>
+                    </div>
+                    {img.author && <span className="text-[9px] bg-indigo-50 text-indigo-600 px-1.5 py-0.5 rounded font-bold">{img.author}</span>}
+                  </div>
+                  <div className="mt-4 flex items-center space-x-4 text-[10px] text-gray-400 font-bold uppercase tracking-tight">
+                    <span className="flex items-center"><Download size={10} className="mr-1" /> {img.downloads}</span>
+                    <span className="flex items-center"><HardDrive size={10} className="mr-1" /> {img.size}</span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </section>
+
+        </div>
+
+        {/* Sidebar Order Summary */}
+        <div className="lg:col-span-1">
+          <div className="bg-white rounded-3xl border border-gray-100 shadow-2xl p-6 sticky top-6 space-y-8 overflow-hidden">
+            <div className="flex items-center justify-between border-b border-gray-50 pb-4">
+              <h3 className="font-bold text-gray-800">实例清单概要</h3>
+              <span className="text-[10px] bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full font-bold">配置确认</span>
+            </div>
+            
+            <div className="space-y-5">
+              <div className="flex justify-between items-center text-xs">
+                <span className="text-gray-400">资源分区</span>
+                <span className="font-bold text-gray-700">{activePartition?.name}</span>
+              </div>
+              <div className="flex justify-between items-center text-xs">
+                <span className="text-gray-400">硬件规格</span>
+                <span className="font-bold text-gray-700">{currentGpu?.name}</span>
+              </div>
+              <div className="flex justify-between items-center text-xs">
+                <span className="text-gray-400">GPU 数量</span>
+                <span className="font-bold text-blue-600">{gpuCount} 卡</span>
+              </div>
+              <div className="flex justify-between items-center text-xs">
+                <span className="text-gray-400">镜像模板</span>
+                <span className="font-bold text-gray-700 truncate ml-4" title={selectedImage}>{selectedImage.toUpperCase()}</span>
+              </div>
+              
+              <div className="p-4 bg-gray-50/50 rounded-2xl space-y-3">
+                <div className="flex justify-between items-center text-[10px]">
+                  <span className="text-gray-400">命名空间</span>
+                  <span className="font-bold text-gray-600 truncate ml-2 max-w-[100px]">{namespace}</span>
+                </div>
+                <div className="flex justify-between items-center text-[10px]">
+                  <span className="text-gray-400">额外存储</span>
+                  <span className="font-bold text-gray-600">{extraStorage.length} 块</span>
+                </div>
+                {storagePrice > 0 && (
+                  <div className="flex justify-between items-center text-[10px]">
+                    <span className="text-gray-400">存储费用</span>
+                    <span className="font-bold text-blue-500">¥{storagePrice.toFixed(2)}/h</span>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex justify-between items-center text-xs">
+                <span className="text-gray-400">访问控制</span>
+                <div className="flex space-x-1">
+                  <span className="bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded-md font-bold text-[9px]">SSH</span>
+                  <span className="bg-indigo-100 text-indigo-600 px-1.5 py-0.5 rounded-md font-bold text-[9px]">LAB</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="pt-8 border-t border-gray-50">
+              <div className="flex items-baseline justify-between mb-3">
+                <span className="text-sm text-gray-500 font-medium">配置总价</span>
+                <div className="text-right">
+                  <span className="text-4xl font-black text-blue-600">¥{totalPrice}</span>
+                  <span className="text-xs text-gray-400 font-medium tracking-tighter"> /小时</span>
+                </div>
+              </div>
+              <div className="flex items-center space-x-2 text-[10px] text-gray-400 font-medium mb-6">
+                <Info size={12} />
+                <span>实时按量计费，每小时自动扣除。</span>
+              </div>
+              <button className="w-full py-4 bg-blue-600 text-white rounded-2xl font-bold hover:bg-blue-700 transition-all shadow-xl shadow-blue-200 transform active:scale-95 flex items-center justify-center space-x-2">
+                <span>立即部署实例</span>
+                <ChevronRight size={18} className="opacity-50" />
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const ChevronRight = ({ size, className }: { size: number, className: string }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+    <path d="m9 18 6-6-6-6"/>
+  </svg>
+);
+
+export default InstanceDeployment;
