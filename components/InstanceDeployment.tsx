@@ -81,7 +81,7 @@ const ADVANCED_IMAGES: Record<string, ImageItem[]> = {
 
 const STORAGE_TYPES = [
   { id: 'block', name: '云硬盘（块存储）', icon: <Database size={16} />, desc: '持久化块存储，支持快照，极高性能', color: 'blue', unitPrice: 0.005, badge: 'BLOCK' },
-  { id: 'nas_ssd', name: '共享存储 (SSD)', icon: <Share2 size={16} />, desc: '全闪架构共享存储，适合高并发读写', color: 'indigo', unitPrice: 0.01, badge: 'SSD' },
+  { id: 'nas_ssd', name: '共享存储 (SSD)', icon: <Share2 size={16} />, desc: '全闪架构共享存储，适合高并发读写', color: 'indigo', unitPrice: 0, badge: 'SSD' },
   { id: 'nas_hdd', name: '共享存储 (HDD)', icon: <HardDrive size={16} />, desc: '大容量低成本共享存储，适合模型仓库', color: 'slate', unitPrice: 0.004, badge: 'HDD' },
   { id: 'baidu', name: '百度网盘 (Netdisk)', icon: <Cloud size={16} />, desc: '直连网盘，支持模型/资源高速同步', color: 'cyan', unitPrice: 0, badge: 'NET' },
   { id: 'local', name: '本地 NVMe 盘', icon: <Zap size={16} />, desc: '物理机直连超高性能盘，释放后清空', color: 'orange', unitPrice: 0, badge: 'LOCAL' },
@@ -100,7 +100,14 @@ interface StorageItem {
   mountPath: string;
   size: number;
   config?: any;
+  sharedId?: string;
+  isNew?: boolean;
 }
+
+const MOCK_EXISTING_SSD = [
+  { id: 'ssd-vol-881', name: 'Shared-SSD-ClusterA (1024GB)', size: 1024 },
+  { id: 'ssd-vol-992', name: 'Model-Weights-Mirror (512GB)', size: 512 },
+];
 
 const InstanceDeployment: React.FC<InstanceDeploymentProps> = ({ onBack }) => {
   const [selectedPartition, setSelectedPartition] = useState('hb1');
@@ -110,7 +117,7 @@ const InstanceDeployment: React.FC<InstanceDeploymentProps> = ({ onBack }) => {
   const [selectedImage, setSelectedImage] = useState('pt21');
   const [extraStorage, setExtraStorage] = useState<StorageItem[]>([]);
   
-  const [showAdvanced, setShowAdvanced] = useState(true); // Default to open as per reference image
+  const [showAdvanced, setShowAdvanced] = useState(true);
   const [showRegionDropdown, setShowRegionDropdown] = useState(false);
   const [showStorageDropdown, setShowStorageDropdown] = useState(false);
   const [selectedCluster, setSelectedCluster] = useState('c-sh-01');
@@ -176,16 +183,18 @@ const InstanceDeployment: React.FC<InstanceDeploymentProps> = ({ onBack }) => {
       type: typeId,
       name: `${storageType.name.split(' (')[0]}-${typeCount}`,
       mountPath: path,
-      size: typeId === 'local' ? 500 : 50,
-      config: typeId === 'baidu' ? { syncDir: '/app/models' } : {}
+      size: typeId === 'local' ? 500 : (typeId === 'nas_ssd' ? 1024 : 50),
+      config: typeId === 'baidu' ? { syncDir: '/app/models' } : {},
+      sharedId: typeId === 'nas_ssd' ? MOCK_EXISTING_SSD[0].id : '',
+      isNew: typeId === 'nas_hdd' ? false : false // By default HDD is not "new" until explicitly chosen
     };
     setExtraStorage([...extraStorage, newStorage]);
     setShowStorageDropdown(false);
     showToast(`已添加: ${storageType.name}`);
   };
 
-  const updateStorageName = (id: string, newName: string) => {
-    setExtraStorage(extraStorage.map(s => s.id === id ? { ...s, name: newName } : s));
+  const updateStorage = (id: string, updates: Partial<StorageItem>) => {
+    setExtraStorage(extraStorage.map(s => s.id === id ? { ...s, ...updates } : s));
   };
 
   const currentGpu = ALL_GPU_SPECS.find(g => g.id === selectedGpu);
@@ -194,6 +203,9 @@ const InstanceDeployment: React.FC<InstanceDeploymentProps> = ({ onBack }) => {
   const storagePrice = extraStorage.reduce((acc, s) => {
     const typeInfo = STORAGE_TYPES.find(t => t.id === s.type);
     if (typeInfo && typeInfo.unitPrice) {
+      // Logic: SSD is free. HDD is only paid if isNew. Others are paid.
+      if (s.type === 'nas_ssd') return acc;
+      if (s.type === 'nas_hdd' && !s.isNew) return acc;
       return acc + (s.size * typeInfo.unitPrice);
     }
     return acc;
@@ -415,7 +427,6 @@ const InstanceDeployment: React.FC<InstanceDeploymentProps> = ({ onBack }) => {
             </div>
 
             <div className="space-y-4">
-              {/* Default System Disk (Old / Fixed) */}
               <div className="relative flex items-center justify-between p-5 bg-white rounded-2xl border border-blue-200 shadow-sm ring-1 ring-blue-50">
                 <div className="flex items-center space-x-4">
                   <div className="bg-blue-600 text-white p-2.5 rounded-xl shadow-lg shadow-blue-100">
@@ -437,25 +448,141 @@ const InstanceDeployment: React.FC<InstanceDeploymentProps> = ({ onBack }) => {
                 <div className="px-3 py-1 bg-blue-50 text-blue-600 text-[10px] font-bold rounded-md uppercase tracking-widest border border-blue-100">DEFAULT</div>
               </div>
 
-              {/* Added Dynamic Disks (Newly created) */}
               {extraStorage.map(storage => {
                 const typeInfo = STORAGE_TYPES.find(t => t.id === storage.type);
-                const currentPrice = (storage.size * (typeInfo?.unitPrice || 0)).toFixed(3);
                 
+                // Logic per request:
+                // SSD: Shared ID selector, Free, show capacity.
+                // HDD: Simulation of none, shared ID empty, has "Create New" which allows name/path/cap/price.
+                
+                if (storage.type === 'nas_ssd') {
+                   const selectedVol = MOCK_EXISTING_SSD.find(v => v.id === storage.sharedId);
+                   return (
+                    <div key={storage.id} className="bg-white rounded-2xl border border-indigo-100 shadow-sm overflow-hidden p-5 space-y-4">
+                      <div className="flex items-start justify-between">
+                        <div className="flex items-start space-x-4">
+                          <div className="p-3 rounded-2xl bg-indigo-50 text-indigo-600"><Share2 size={24} /></div>
+                          <div>
+                             <h5 className="text-sm font-bold text-gray-800">已购共享存储挂载 (SSD)</h5>
+                             <p className="text-[11px] text-green-600 font-bold mt-1">✓ 挂载免费 (不消耗账户余额)</p>
+                          </div>
+                        </div>
+                        <button onClick={() => setExtraStorage(extraStorage.filter(s => s.id !== storage.id))} className="p-2 text-gray-300 hover:text-red-500"><Trash2 size={20} /></button>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-gray-50/50 p-4 rounded-xl border border-gray-100">
+                        <div className="space-y-1.5">
+                          <label className="text-[10px] font-bold text-gray-400 uppercase">共享存储 ID</label>
+                          <select 
+                            value={storage.sharedId}
+                            onChange={(e) => updateStorage(storage.id, { sharedId: e.target.value, size: MOCK_EXISTING_SSD.find(v => v.id === e.target.value)?.size || 0 })}
+                            className="w-full text-xs p-2.5 bg-white border border-gray-200 rounded-lg font-bold"
+                          >
+                            {MOCK_EXISTING_SSD.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
+                          </select>
+                        </div>
+                        <div className="space-y-1.5">
+                          <label className="text-[10px] font-bold text-gray-400 uppercase">挂载路径</label>
+                          <input 
+                            type="text" 
+                            value={storage.mountPath}
+                            onChange={(e) => updateStorage(storage.id, { mountPath: e.target.value })}
+                            className="w-full text-xs p-2.5 bg-white border border-gray-200 rounded-lg font-mono text-blue-600"
+                          />
+                        </div>
+                        <div className="space-y-1.5">
+                          <label className="text-[10px] font-bold text-gray-400 uppercase">当前卷容量</label>
+                          <div className="w-full text-xs p-2.5 bg-white/50 border border-dashed border-gray-200 rounded-lg font-black text-gray-700 flex items-center justify-between">
+                            <span>{selectedVol?.size} GB</span>
+                            <span className="text-[9px] bg-gray-100 px-1 rounded text-gray-400">RO/RW</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                   );
+                }
+
+                if (storage.type === 'nas_hdd') {
+                  const currentPrice = (storage.size * (typeInfo?.unitPrice || 0)).toFixed(3);
+                  return (
+                    <div key={storage.id} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden p-5 space-y-4">
+                      <div className="flex items-start justify-between">
+                        <div className="flex items-start space-x-4">
+                          <div className="p-3 rounded-2xl bg-slate-50 text-slate-600"><HardDrive size={24} /></div>
+                          <div>
+                             <h5 className="text-sm font-bold text-gray-800">共享存储挂载 (HDD)</h5>
+                             <p className="text-[10px] text-gray-400 mt-1">模拟没有共享存储的情形：下拉可选新建</p>
+                          </div>
+                        </div>
+                        <button onClick={() => setExtraStorage(extraStorage.filter(s => s.id !== storage.id))} className="p-2 text-gray-300 hover:text-red-500"><Trash2 size={20} /></button>
+                      </div>
+
+                      <div className="space-y-4 bg-gray-50/50 p-4 rounded-xl border border-gray-100">
+                        <div className="space-y-1.5">
+                          <label className="text-[10px] font-bold text-gray-400 uppercase">选择共享存储 ID</label>
+                          <select 
+                            value={storage.isNew ? 'new' : ''}
+                            onChange={(e) => updateStorage(storage.id, { isNew: e.target.value === 'new', name: e.target.value === 'new' ? 'New-HDD-Volume' : storage.name })}
+                            className="w-full text-xs p-2.5 bg-white border border-gray-200 rounded-lg font-bold"
+                          >
+                            <option value="">(空) 无可用共享存储</option>
+                            <option value="new">+ 新建共享存储卷</option>
+                          </select>
+                        </div>
+
+                        {storage.isNew && (
+                          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 animate-in fade-in slide-in-from-top-2">
+                             <div className="space-y-1.5">
+                                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-tighter">卷名称</label>
+                                <input 
+                                  type="text" 
+                                  value={storage.name}
+                                  onChange={(e) => updateStorage(storage.id, { name: e.target.value })}
+                                  className="w-full text-xs p-2.5 bg-white border border-gray-200 rounded-lg font-bold"
+                                />
+                             </div>
+                             <div className="space-y-1.5">
+                                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-tighter">挂载路径</label>
+                                <input 
+                                  type="text" 
+                                  value={storage.mountPath}
+                                  onChange={(e) => updateStorage(storage.id, { mountPath: e.target.value })}
+                                  className="w-full text-xs p-2.5 bg-white border border-gray-200 rounded-lg font-mono text-blue-600"
+                                />
+                             </div>
+                             <div className="space-y-1.5">
+                                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-tighter">容量 (GB)</label>
+                                <input 
+                                  type="number" 
+                                  value={storage.size}
+                                  onChange={(e) => updateStorage(storage.id, { size: parseInt(e.target.value) || 0 })}
+                                  className="w-full text-xs p-2.5 bg-white border border-gray-200 rounded-lg font-black"
+                                />
+                             </div>
+                             <div className="flex flex-col justify-end">
+                                <p className="text-[11px] font-bold text-blue-500 mb-1">价格: ¥{currentPrice}/h</p>
+                                <div className="text-[9px] bg-blue-50 text-blue-600 p-1.5 rounded font-bold text-center border border-blue-100 uppercase">NEW VOLUME</div>
+                             </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                }
+
+                // Default rendering for other storage types (Cloud Disk, Netdisk, etc.)
+                const currentPrice = (storage.size * (typeInfo?.unitPrice || 0)).toFixed(3);
                 return (
-                  <div key={storage.id} className="group relative bg-white rounded-2xl border border-gray-100 shadow-sm hover:border-blue-200 transition-all overflow-hidden animate-in slide-in-from-right-4">
+                  <div key={storage.id} className="group relative bg-white rounded-2xl border border-gray-100 shadow-sm hover:border-blue-200 transition-all overflow-hidden">
                     <div className="flex flex-col md:flex-row md:items-center justify-between p-5 space-y-4 md:space-y-0">
                       <div className="flex items-start space-x-4">
-                        <div className={`p-3 rounded-2xl bg-gray-50 text-gray-600 group-hover:bg-blue-50 group-hover:text-blue-600 transition-colors`}>
-                          {typeInfo?.icon}
-                        </div>
+                        <div className={`p-3 rounded-2xl bg-gray-50 text-gray-600 group-hover:bg-blue-50 group-hover:text-blue-600 transition-colors`}>{typeInfo?.icon}</div>
                         <div className="flex-1">
                           <div className="flex items-center space-x-2">
-                            {/* Editable Name Input for New Disks */}
                             <input 
                               type="text"
                               value={storage.name}
-                              onChange={(e) => updateStorageName(storage.id, e.target.value)}
+                              onChange={(e) => updateStorage(storage.id, { name: e.target.value })}
                               className="text-sm font-bold text-gray-800 bg-transparent border-b border-transparent hover:border-blue-200 focus:border-blue-500 focus:outline-none transition-colors px-1 -ml-1"
                               placeholder="磁盘名称"
                             />
@@ -469,67 +596,21 @@ const InstanceDeployment: React.FC<InstanceDeploymentProps> = ({ onBack }) => {
                           </div>
                         </div>
                       </div>
-
                       <div className="flex items-center justify-end space-x-8">
                         {storage.type !== 'baidu' && (
                           <div className="flex flex-col items-end">
                             <div className="flex items-center space-x-3 bg-gray-50 p-1 rounded-xl border border-gray-100">
                               <span className="text-xs font-bold text-gray-400 px-2 uppercase tracking-tighter">容量:</span>
                               <div className="flex items-center bg-white rounded-lg border border-gray-200 pr-2">
-                                <input 
-                                  type="number" 
-                                  value={storage.size}
-                                  onChange={(e) => {
-                                    const newS = extraStorage.map(s => s.id === storage.id ? {...s, size: parseInt(e.target.value) || 0} : s);
-                                    setExtraStorage(newS);
-                                  }}
-                                  className="w-16 px-2.5 py-1.5 text-sm font-bold text-gray-800 outline-none text-right"
-                                />
+                                <input type="number" value={storage.size} onChange={(e) => updateStorage(storage.id, { size: parseInt(e.target.value) || 0 })} className="w-16 px-2.5 py-1.5 text-sm font-bold text-gray-800 outline-none text-right" />
                                 <span className="ml-1 text-[11px] font-black text-gray-400">GB</span>
                               </div>
                             </div>
-                            {typeInfo && typeInfo.unitPrice > 0 && (
-                              <p className="text-[11px] text-blue-500 font-bold mt-1.5 pr-2">预估价格: ¥{currentPrice}/h</p>
-                            )}
+                            {typeInfo && typeInfo.unitPrice > 0 && <p className="text-[11px] text-blue-500 font-bold mt-1.5 pr-2">预估价格: ¥{currentPrice}/h</p>}
                           </div>
                         )}
-
-                        {storage.type === 'baidu' && (
-                          <div className="flex items-center space-x-3 bg-blue-50 px-4 py-2 rounded-xl">
-                            <Cloud size={16} className="text-blue-600" />
-                            <span className="text-xs font-bold text-blue-700">自动同步网盘数据</span>
-                          </div>
-                        )}
-
-                        <button 
-                          onClick={() => setExtraStorage(extraStorage.filter(s => s.id !== storage.id))}
-                          className="p-2.5 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all"
-                        >
-                          <Trash2 size={22} />
-                        </button>
+                        <button onClick={() => setExtraStorage(extraStorage.filter(s => s.id !== storage.id))} className="p-2.5 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all"><Trash2 size={22} /></button>
                       </div>
-                    </div>
-                    
-                    <div className="px-5 pb-5">
-                      {storage.type === 'baidu' && (
-                        <div className="flex flex-col space-y-2 bg-gray-50/30 p-4 rounded-xl border border-gray-100">
-                          <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">网盘同步设置</label>
-                          <div className="flex space-x-2">
-                            <input type="text" placeholder="/模型/SD/checkpoints" className="flex-1 text-xs p-3 bg-white border border-gray-200 rounded-xl outline-none focus:ring-1 focus:ring-blue-500" />
-                            <button className="px-4 py-2 bg-white border border-gray-200 text-blue-600 text-xs font-bold rounded-xl hover:bg-blue-50 transition-colors shadow-sm">浏览网盘</button>
-                          </div>
-                        </div>
-                      )}
-                      {(storage.type === 'nas_ssd' || storage.type === 'nas_hdd') && (
-                        <div className="flex flex-col space-y-2 bg-gray-50/30 p-4 rounded-xl border border-gray-100">
-                          <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">共享存储 ID</label>
-                          <select className="text-xs p-3 bg-white border border-gray-200 rounded-xl font-bold text-gray-600 outline-none focus:ring-1 focus:ring-blue-500">
-                            <option>nas-public-bj-01 (已挂载 12 实例)</option>
-                            <option>nas-private-custom-02</option>
-                            <option>+ 创建新存储卷</option>
-                          </select>
-                        </div>
-                      )}
                     </div>
                   </div>
                 )
