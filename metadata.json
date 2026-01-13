@@ -1,0 +1,5 @@
+{
+  "name": "ebcloud AI Console",
+  "description": "A high-performance GPU and AI cloud management console featuring instance deployment, model APIs, and advanced cluster orchestration.",
+  "requestFramePermissions": []
+}
