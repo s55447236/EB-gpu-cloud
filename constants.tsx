@@ -17,7 +17,7 @@ import {
   Gift,
   Home
 } from 'lucide-react';
-import { MenuItem, Instance, InstanceStatus, Cluster, Node } from './types';
+import { MenuItem, Instance, InstanceStatus, Cluster, ClusterNode } from './types';
 
 export const MENU_ITEMS: MenuItem[] = [
   { id: 'dashboard', label: '控制台概览', icon: <Home size={18} />, category: '首页' },
@@ -36,7 +36,7 @@ export const MENU_ITEMS: MenuItem[] = [
   { id: 'stats', label: '调用统计', icon: <BarChart3 size={18} />, category: '管理' },
 ];
 
-const createNodes = (prefix: string, count: number): Node[] => {
+const createNodes = (prefix: string, count: number): ClusterNode[] => {
   return Array.from({ length: count }).map((_, i) => ({
     id: `node-${prefix}-${i}`,
     name: `${prefix}-node-0${i + 1}`,

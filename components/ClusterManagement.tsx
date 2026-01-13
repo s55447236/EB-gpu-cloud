@@ -17,7 +17,7 @@ import {
   ChevronRight
 } from 'lucide-react';
 import { MOCK_CLUSTERS } from '../constants';
-import { Cluster, Node } from '../types';
+import { Cluster, ClusterNode } from '../types';
 
 const ClusterManagement: React.FC = () => {
   const [selectedCluster, setSelectedCluster] = useState<Cluster | null>(null);

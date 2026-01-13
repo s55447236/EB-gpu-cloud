@@ -23,7 +23,7 @@ export interface Instance {
   createTime: string;
 }
 
-export interface Node {
+export interface ClusterNode {
   id: string;
   name: string;
   ip: string;
@@ -42,7 +42,7 @@ export interface Cluster {
   totalGpu: number;
   usedGpu: number;
   status: 'Healthy' | 'Warning' | 'Scaling';
-  nodeDetails: Node[];
+  nodeDetails: ClusterNode[];
 }
 
 export type ViewType = 'LIST' | 'CARD';
