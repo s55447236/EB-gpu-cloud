@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   ChevronLeft, 
@@ -25,7 +24,9 @@ import {
   Link,
   Minus,
   Lock,
-  Terminal
+  Terminal,
+  Copy,
+  BookOpen
 } from 'lucide-react';
 
 interface InstanceDeploymentProps {
@@ -90,22 +91,6 @@ const IMAGES_BY_CAT: Record<string, ImageItem[]> = {
         { id: 'tf-215', label: 'TensorFlow2.15/CUDA 12.1/Python 3.10/ubuntu 22.04', size: '10.2GB' },
         { id: 'tf-212', label: 'TensorFlow2.12/CUDA 11.8/Python 3.9/ubuntu 20.04', size: '9.5GB' }
       ] 
-    },
-    { 
-      id: 'miniconda', 
-      name: 'Miniconda', 
-      versions: [
-        { id: 'mc-310', label: 'Miniconda3/Python 3.10/Linux-x86_64', size: '1.2GB' },
-        { id: 'mc-39', label: 'Miniconda3/Python 3.9/Linux-x86_64', size: '1.1GB' }
-      ] 
-    },
-    { 
-      id: 'ubuntu', 
-      name: 'Ubuntu', 
-      versions: [
-        { id: 'u-22', label: 'Ubuntu 22.04 LTS/Base/Clean', size: '2.1GB' },
-        { id: 'u-20', label: 'Ubuntu 20.04 LTS/Base/Clean', size: '1.8GB' }
-      ] 
     }
   ],
   custom: [
@@ -166,6 +151,22 @@ const MOCK_EXISTING_VOLUMES: Record<string, { id: string, name: string, size: nu
   local: [] 
 };
 
+const DEFAULT_TEMPLATES = {
+  initPackage: `# 以下命令目前均为注释状态，请根据所选镜像情况按需修改。若是所选镜像为开发机保存而来，通常不需要修改
+# 允许 root 用户基于密码登录
+# mkdir -p /etc/ssh
+# echo "PasswordAuthentication yes" >> /etc/ssh/sshd_config`,
+  initSSH: `# 以下命令初始化 root 密码及相关 k8s 环境变量，通常不需要修改
+# 配置 sshd 的监听端口
+sed -i '/^[#[:space:]]*Port[[:space:]]/d' /etc/ssh/sshd_config
+echo "Port \${EBCS_SSH_PORT}" >> /etc/ssh/sshd_config`,
+  launch: `# 以下命令启动 jupyter-lab 及 sshd 服务，通常不需要修改
+# 后台启动 jupyter-lab
+if command -v jupyter-lab >/dev/null 2>&1 && [ -n "\${EBCS_JUPYTER_PORT}" ] && [ -n "\${EBCS_JUPYTER_TOKEN}" ]; then
+    cd /root && jupyter-lab --allow-root --ip=0.0.0.0 --port=\${EBCS_JUPYTER_PORT} --NotebookApp.token=\${EBCS_JUPYTER_TOKEN} &
+fi`
+};
+
 const InstanceDeployment: React.FC<InstanceDeploymentProps> = ({ onBack }) => {
   const [selectedPartition, setSelectedPartition] = useState('hb1');
   const [selectedGpu, setSelectedGpu] = useState('a100');
@@ -179,14 +180,18 @@ const InstanceDeployment: React.FC<InstanceDeploymentProps> = ({ onBack }) => {
   const [selectedVersionMap, setSelectedVersionMap] = useState<Record<string, string>>({
     'pytorch': 'pt-270',
     'tensorflow': 'tf-215',
-    'miniconda': 'mc-310',
-    'ubuntu': 'u-22',
     'my-model-base': 'v1-0',
     'team-diffusion': 'v1'
   });
 
-  // Additional Image Config State
-  const [startupCommand, setStartupCommand] = useState('');
+  // Startup Command Template States
+  const [commandTemplates, setCommandTemplates] = useState(DEFAULT_TEMPLATES);
+  const [expandedBlocks, setExpandedBlocks] = useState<Record<string, boolean>>({
+    initPackage: true,
+    initSSH: true,
+    launch: true
+  });
+
   const [externalUrl, setExternalUrl] = useState('');
   const [hasExternalAuth, setHasExternalAuth] = useState(false);
   const [externalUsername, setExternalUsername] = useState('');
@@ -220,6 +225,15 @@ const InstanceDeployment: React.FC<InstanceDeploymentProps> = ({ onBack }) => {
     toastTimerRef.current = window.setTimeout(() => {
       setToast(prev => prev ? { ...prev, show: false } : null);
     }, 3000);
+  };
+
+  const toggleBlock = (id: string) => {
+    setExpandedBlocks(prev => ({ ...prev, [id]: !prev[id] }));
+  };
+
+  const resetBlock = (id: keyof typeof DEFAULT_TEMPLATES) => {
+    setCommandTemplates(prev => ({ ...prev, [id]: DEFAULT_TEMPLATES[id] }));
+    showToast(`已重置该段启动命令`);
   };
 
   const handleGpuSelect = (gpu: GpuSpec) => {
@@ -356,6 +370,43 @@ const InstanceDeployment: React.FC<InstanceDeploymentProps> = ({ onBack }) => {
       [imageId]: versionId
     }));
   };
+
+  const renderCodeBlock = (id: keyof typeof DEFAULT_TEMPLATES, title: string) => (
+    <div className="space-y-2">
+      <div className="flex items-center space-x-2 text-xs font-bold text-gray-600">
+        <Zap size={14} className="text-blue-500" />
+        <span>{title}</span>
+      </div>
+      <div className="bg-[#f8fafc] border border-gray-100 rounded-xl overflow-hidden">
+        <div className={`px-4 py-3 transition-all ${expandedBlocks[id] ? 'h-auto' : 'h-14 overflow-hidden'}`}>
+          <textarea
+            value={commandTemplates[id]}
+            onChange={(e) => setCommandTemplates(prev => ({ ...prev, [id]: e.target.value }))}
+            className="w-full bg-transparent text-xs font-mono text-slate-700 outline-none resize-none leading-relaxed placeholder:text-gray-300 min-h-[80px]"
+            spellCheck={false}
+          />
+        </div>
+        <div className="px-4 py-2 border-t border-gray-100/50 bg-gray-50/30 flex items-center justify-between">
+           <div className="flex items-center space-x-4">
+              <button 
+                onClick={() => toggleBlock(id)}
+                className="flex items-center space-x-1 text-[10px] font-bold text-blue-500 hover:text-blue-700 transition-colors"
+              >
+                {expandedBlocks[id] ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+                <span>{expandedBlocks[id] ? '收起' : '展开'}</span>
+              </button>
+              <button 
+                onClick={() => resetBlock(id)}
+                className="flex items-center space-x-1 text-[10px] font-bold text-blue-500 hover:text-blue-700 transition-colors"
+              >
+                <RotateCcw size={12} />
+                <span>重置</span>
+              </button>
+           </div>
+        </div>
+      </div>
+    </div>
+  );
 
   return (
     <div className="max-w-7xl mx-auto space-y-6 pb-20 relative">
@@ -571,7 +622,7 @@ const InstanceDeployment: React.FC<InstanceDeploymentProps> = ({ onBack }) => {
                 <div className="bg-blue-600 p-1.5 rounded-lg text-white shadow-sm shadow-blue-100">
                   <HardDrive size={18} />
                 </div>
-                <h2 className="font-bold text-gray-800">存储配置</h2>
+                <h2 className="font-bold text-gray-800">2. 存储配置</h2>
               </div>
             </div>
 
@@ -805,9 +856,54 @@ const InstanceDeployment: React.FC<InstanceDeploymentProps> = ({ onBack }) => {
               ) : null}
             </div>
 
-            {/* Additional Configs for selected Image (Startup Cmd, Auth for External) */}
-            <div className="space-y-6 pt-2">
-              {/* External Image Registry Details */}
+            {/* Additional Configs for selected Image (Startup Cmd Template) */}
+            <div className="pt-4 border-t border-gray-50 space-y-6">
+              {/* Startup Command Editor (Visible for custom & shared) */}
+              {['custom', 'shared'].includes(imageCategory) && (
+                <div className="space-y-6 animate-in fade-in">
+                  <div className="flex items-center justify-between">
+                    <label className="text-sm font-bold text-gray-700 flex items-center">
+                      <Terminal size={16} className="mr-2 text-blue-500" /> 启动命令 (STARTUP COMMAND)
+                    </label>
+                    <div className="flex items-center space-x-4">
+                      <button className="flex items-center space-x-1 text-xs text-gray-400 hover:text-blue-600">
+                        <BookOpen size={14} />
+                        <span>参数解释</span>
+                      </button>
+                      <button className="flex items-center space-x-1 text-xs text-gray-400 hover:text-blue-600">
+                        <Copy size={14} />
+                        <span>复制</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="bg-white border border-gray-100 rounded-2xl p-6 space-y-8 shadow-sm">
+                    {/* Stage 1: Initialize */}
+                    <div className="space-y-4">
+                       <div className="text-xs font-mono text-gray-400"># 1. Initialize 阶段：安装必要软件包，初始化环境配置</div>
+                       <div className="text-xs font-mono text-indigo-600">{'if [ -z "${EBCS_SYS_INITIALIZED}" ] || [ "${EBCS_SYS_INITIALIZED}" = "False" ]; then'}</div>
+                       
+                       <div className="pl-6 space-y-6">
+                          {renderCodeBlock('initPackage', '# Initialize Package: 安装必要软件包')}
+                          {renderCodeBlock('initSSH', '# Initialize Config: 初始化环境配置')}
+                       </div>
+                       
+                       <div className="text-xs font-mono text-indigo-600">fi</div>
+                    </div>
+
+                    {/* Stage 2: Launch */}
+                    <div className="space-y-4 pt-4 border-t border-gray-50">
+                       <div className="text-xs font-mono text-gray-400"># 2. Launch 阶段：启动 jupyter-lab 后台运行，启动 sshd 作为主进程运行</div>
+                       <div className="pl-6">
+                          {renderCodeBlock('launch', '# Launch: 启动服务')}
+                       </div>
+                    </div>
+                  </div>
+                  <p className="text-[10px] text-gray-400">留空则执行镜像默认 Entrypoint 或 CMD</p>
+                </div>
+              )}
+
+              {/* External Image Registry Details (Keep existing) */}
               {imageCategory === 'external' && (
                 <div className="bg-gray-50/50 border border-gray-100 rounded-xl p-6 space-y-6 animate-in slide-in-from-top-4">
                   <div className="space-y-3">
@@ -860,22 +956,6 @@ const InstanceDeployment: React.FC<InstanceDeploymentProps> = ({ onBack }) => {
                       </div>
                     </div>
                   )}
-                </div>
-              )}
-
-              {/* Startup Command (Visible for custom, shared, external) */}
-              {['custom', 'shared', 'external'].includes(imageCategory) && (
-                <div className="bg-gray-50/50 border border-gray-100 rounded-xl p-6 space-y-3 animate-in fade-in">
-                  <label className="text-xs font-bold text-gray-500 uppercase tracking-wider flex items-center">
-                    <Terminal size={14} className="mr-2 text-blue-500" /> 启动命令 (Startup Command)
-                  </label>
-                  <textarea 
-                    value={startupCommand}
-                    onChange={(e) => setStartupCommand(e.target.value)}
-                    placeholder="例如: /usr/bin/python3 /app/main.py --port 8080"
-                    className="w-full bg-white border border-gray-100 rounded-xl py-3 px-4 text-sm font-mono text-gray-600 outline-none focus:ring-2 focus:ring-blue-500 min-h-[100px] resize-none"
-                  ></textarea>
-                  <p className="text-[10px] text-gray-400">留空则执行镜像默认 Entrypoint 或 CMD</p>
                 </div>
               )}
             </div>
