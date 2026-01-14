@@ -26,7 +26,8 @@ import {
   Key,
   RotateCcw,
   RefreshCw,
-  Link
+  Link,
+  Minus
 } from 'lucide-react';
 
 interface InstanceDeploymentProps {
@@ -121,6 +122,7 @@ const InstanceDeployment: React.FC<InstanceDeploymentProps> = ({ onBack }) => {
   const [selectedGpu, setSelectedGpu] = useState('a100');
   const [selectedDriver, setSelectedDriver] = useState(DRIVER_VERSIONS[0]);
   const [gpuCount, setGpuCount] = useState(1);
+  const [instanceCount, setInstanceCount] = useState(1);
   const [imageCategory, setImageCategory] = useState('preinstalled');
   const [selectedImage, setSelectedImage] = useState('pt21');
   const [extraStorage, setExtraStorage] = useState<StorageItem[]>([]);
@@ -220,6 +222,7 @@ const InstanceDeployment: React.FC<InstanceDeploymentProps> = ({ onBack }) => {
 
   const currentGpu = ALL_GPU_SPECS.find(g => g.id === selectedGpu);
   const imagesToShow = ADVANCED_IMAGES[imageCategory] || [];
+  const extraStorageSize = extraStorage.reduce((acc, s) => acc + s.size, 0);
   const storagePrice = extraStorage.reduce((acc, s) => {
     if (!s.isNew) return acc;
     const typeInfo = STORAGE_TYPES.find(t => t.id === s.type);
@@ -230,8 +233,10 @@ const InstanceDeployment: React.FC<InstanceDeploymentProps> = ({ onBack }) => {
   // Scaled values
   const scaledCores = (currentGpu?.baseCores || 0) * gpuCount;
   const scaledRam = (currentGpu?.baseRam || 0) * gpuCount;
-  const totalPrice = ((currentGpu?.price || 0) * gpuCount + storagePrice).toFixed(2);
+  const gpuSubtotal = (currentGpu?.price || 0) * gpuCount;
+  const totalPrice = ((gpuSubtotal + storagePrice) * instanceCount).toFixed(2);
   const activePartition = PARTITIONS.find(p => p.id === selectedPartition);
+  const activeImage = imagesToShow.find(img => img.id === selectedImage);
 
   return (
     <div className="max-w-7xl mx-auto space-y-6 pb-20 relative">
@@ -627,79 +632,118 @@ const InstanceDeployment: React.FC<InstanceDeploymentProps> = ({ onBack }) => {
 
         {/* Sidebar Order Summary */}
         <div className="lg:col-span-1">
-          <div className="bg-white rounded-3xl border border-gray-100 shadow-2xl p-6 sticky top-6 space-y-8">
-            <div className="flex items-center justify-between border-b border-gray-50 pb-4">
-              <h3 className="font-bold text-gray-800">实例清单概要</h3>
-              <span className="text-[10px] bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full font-bold">配置确认</span>
-            </div>
-            
-            <div className="space-y-5">
-              <div className="flex justify-between items-center text-xs">
-                <span className="text-gray-400">资源分区</span>
-                <span className="font-bold text-gray-700">{activePartition?.name}</span>
-              </div>
-              <div className="flex justify-between items-center text-xs">
-                <span className="text-gray-400">硬件规格</span>
-                <span className="font-bold text-gray-700">{currentGpu?.name}</span>
-              </div>
-              <div className="flex justify-between items-center text-xs">
-                <span className="text-gray-400">驱动版本</span>
-                <span className="font-bold text-blue-600 text-[10px]">{selectedDriver.split(' ')[0]}</span>
-              </div>
-              <div className="flex justify-between items-center text-xs">
-                <span className="text-gray-400">GPU 数量</span>
-                <span className="font-bold text-blue-600">{gpuCount} 卡</span>
-              </div>
-              <div className="flex justify-between items-center text-xs">
-                <span className="text-gray-400">镜像模板</span>
-                <span className="font-bold text-gray-700 truncate ml-4 text-right max-w-[120px]">{selectedImage.toUpperCase()}</span>
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-lg p-6 sticky top-6 space-y-5 flex flex-col">
+            {/* Sidebar Title */}
+            <h3 className="text-base font-bold text-gray-900 border-b border-gray-50 pb-3">配置概要</h3>
+
+            {/* Group 1: Hardware & Location */}
+            <div className="space-y-3.5 pt-1">
+              <div className="flex justify-between items-center text-sm">
+                <div>
+                   <span className="text-gray-400 font-medium">资源分区: </span>
+                   <span className="text-gray-900 font-bold">{activePartition?.name}</span>
+                </div>
               </div>
               
-              <div className="p-4 bg-gray-50/50 rounded-2xl space-y-3">
-                <div className="flex justify-between items-center text-[10px]">
-                  <span className="text-gray-400">命名空间</span>
-                  <span className="font-bold text-gray-600 truncate ml-2 max-w-[100px]">{namespace}</span>
+              <div className="flex justify-between items-center text-sm">
+                <div>
+                   <span className="text-gray-400 font-medium">规格: </span>
+                   <span className="text-gray-900 font-bold">{currentGpu?.name}*{gpuCount}</span>
                 </div>
-                <div className="flex justify-between items-center text-[10px]">
-                  <span className="text-gray-400">数据盘</span>
-                  <span className="font-bold text-gray-600">{extraStorage.length} 块</span>
-                </div>
-                <div className="flex justify-between items-center text-[10px]">
-                  <span className="text-gray-400">计算资源</span>
-                  <span className="font-bold text-blue-600">{scaledCores}核 / {scaledRam}GB</span>
-                </div>
-                {storagePrice > 0 && (
-                  <div className="flex justify-between items-center text-[10px]">
-                    <span className="text-gray-400">新增存储费</span>
-                    <span className="font-bold text-blue-500">¥{storagePrice.toFixed(2)}/h</span>
-                  </div>
-                )}
+                <span className="text-[11px] font-bold text-orange-500">¥{gpuSubtotal.toFixed(1)}/小时</span>
               </div>
-
-              <div className="flex justify-between items-center text-xs">
-                <span className="text-gray-400">访问控制</span>
-                <div className="flex space-x-1">
-                  <span className="bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded-md font-bold text-[9px]">SSH</span>
-                  <span className="bg-indigo-100 text-indigo-600 px-1.5 py-0.5 rounded-md font-bold text-[9px]">LAB</span>
+              
+              <div className="flex justify-between items-center text-sm">
+                <div>
+                  <span className="text-gray-400 font-medium">驱动版本: </span>
+                  <span className="text-gray-900 font-bold">{selectedDriver.split(' ')[0]}</span>
+                </div>
+              </div>
+              
+              <div className="flex justify-between items-center text-sm">
+                <div>
+                  <span className="text-gray-400 font-medium">cpu/内存: </span>
+                  <span className="text-gray-900 font-bold">{scaledCores}core /{scaledRam}GB</span>
                 </div>
               </div>
             </div>
 
-            <div className="pt-8 border-t border-gray-50">
-              <div className="flex items-baseline justify-between mb-3">
-                <span className="text-sm text-gray-500 font-medium">配置总价</span>
-                <div className="text-right">
-                  <span className="text-4xl font-black text-blue-600">¥{totalPrice}</span>
-                  <span className="text-xs text-gray-400 font-medium tracking-tighter"> /小时</span>
+            <hr className="border-gray-50" />
+
+            {/* Group 2: Storage */}
+            <div className="space-y-3.5">
+              <div className="flex justify-between items-center text-sm">
+                <div>
+                  <span className="text-gray-400 font-medium">系统盘: </span>
+                  <span className="text-gray-900 font-bold">30GB</span>
                 </div>
               </div>
-              <div className="flex items-center space-x-2 text-[10px] text-gray-400 font-medium mb-6">
-                <Info size={12} />
-                <span>实时按量计费，每小时自动扣除。</span>
+              
+              {extraStorage.length > 0 && (
+                <div className="flex justify-between items-center text-sm">
+                  <div>
+                    <span className="text-gray-400 font-medium">块存储: </span>
+                    <span className="text-gray-900 font-bold">{extraStorageSize}GB</span>
+                  </div>
+                  {storagePrice > 0 && <span className="text-[11px] font-bold text-orange-500">¥{storagePrice.toFixed(1)}/小时</span>}
+                </div>
+              )}
+            </div>
+
+            <hr className="border-gray-50" />
+
+            {/* Group 3: Image */}
+            <div className="space-y-3.5">
+              <div className="flex justify-between items-center text-sm">
+                <div>
+                  <span className="text-gray-400 font-medium">镜像版本: </span>
+                  <span className="text-gray-900 font-bold">{activeImage?.version.split(' / ')[0] || 'Base Version'}</span>
+                </div>
               </div>
-              <button className="w-full py-4 bg-blue-600 text-white rounded-2xl font-bold hover:bg-blue-700 shadow-xl shadow-blue-200 active:scale-95 flex items-center justify-center space-x-2 transition-all">
+            </div>
+
+            <hr className="border-gray-50" />
+
+            {/* Group 4: Instance Quantity */}
+            <div className="space-y-4">
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-gray-900 font-bold">数量</span>
+                <div className="flex items-center border border-gray-200 rounded-lg overflow-hidden bg-white">
+                  <button 
+                    onClick={() => setInstanceCount(Math.max(1, instanceCount - 1))}
+                    className="p-2 hover:bg-gray-50 text-gray-400 transition-colors border-r border-gray-200"
+                  >
+                    <Minus size={14} />
+                  </button>
+                  <div className="px-5 py-2 text-sm font-bold text-gray-700 w-16 text-center">
+                    {instanceCount.toFixed(2)}
+                  </div>
+                  <button 
+                    onClick={() => setInstanceCount(instanceCount + 1)}
+                    className="p-2 hover:bg-gray-50 text-gray-400 transition-colors border-l border-gray-200"
+                  >
+                    <Plus size={14} />
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <hr className="border-gray-50" />
+
+            {/* Total Section */}
+            <div className="space-y-5">
+              <div className="flex items-baseline justify-between">
+                <span className="text-lg font-bold text-gray-900">合计</span>
+                <div className="flex items-center space-x-1">
+                  <span className="text-2xl font-black text-orange-500">¥ {totalPrice}</span>
+                  <span className="text-xs text-gray-400 font-bold">/小时</span>
+                  <Info size={14} className="text-gray-300 cursor-help ml-1" />
+                </div>
+              </div>
+              
+              <button className="w-full py-3.5 bg-blue-600 text-white rounded-xl font-bold text-sm hover:bg-blue-700 shadow-lg shadow-blue-100 transition-all flex items-center justify-center space-x-2 active:scale-[0.98]">
                 <span>立即部署实例</span>
-                <ChevronRight size={18} className="opacity-50" />
+                <ChevronRight size={18} />
               </button>
             </div>
           </div>
