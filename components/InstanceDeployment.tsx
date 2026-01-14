@@ -10,24 +10,22 @@ import {
   Database,
   Plus,
   Trash2,
-  Download,
   Share2,
   Settings2,
   ChevronDown,
   ChevronUp,
   Globe,
-  MapPin,
   Check,
   X,
   AlertTriangle,
   Zap,
-  Cloud,
   ChevronRight,
-  Key,
   RotateCcw,
   RefreshCw,
   Link,
-  Minus
+  Minus,
+  Lock,
+  Terminal
 } from 'lucide-react';
 
 interface InstanceDeploymentProps {
@@ -59,28 +57,78 @@ const DRIVER_VERSIONS = [
   '470.182.03 (CUDA 11.4)',
 ];
 
+interface ImageVersion {
+  id: string;
+  label: string;
+  size: string;
+}
+
 interface ImageItem {
   id: string;
   name: string;
-  version: string;
-  downloads: string;
-  size: string;
+  versions: ImageVersion[];
   author?: string;
+  badge?: string;
 }
 
-const ADVANCED_IMAGES: Record<string, ImageItem[]> = {
-  official: [
-    { id: 'u22', name: 'Ubuntu 22.04 LTS', version: 'Base / Clean', downloads: '1.2M', size: '2.1GB' },
-    { id: 'u20', name: 'Ubuntu 20.04 LTS', version: 'Base / Clean', downloads: '800K', size: '1.8GB' },
+const IMAGES_BY_CAT: Record<string, ImageItem[]> = {
+  prebuilt: [
+    { 
+      id: 'pytorch', 
+      name: 'PyTorch', 
+      badge: '训练微调',
+      versions: [
+        { id: 'pt-270', label: 'PyTorch2.7.0/CUDA 12.1/Python 3.10/ubuntu 24.04', size: '12.4GB' },
+        { id: 'pt-210', label: 'PyTorch2.1.0/CUDA 12.1/Python 3.10/ubuntu 22.04', size: '12.4GB' },
+        { id: 'pt-201', label: 'PyTorch2.0.1/CUDA 11.8/Python 3.9/ubuntu 22.04', size: '10.8GB' }
+      ] 
+    },
+    { 
+      id: 'tensorflow', 
+      name: 'TensorFlow', 
+      versions: [
+        { id: 'tf-215', label: 'TensorFlow2.15/CUDA 12.1/Python 3.10/ubuntu 22.04', size: '10.2GB' },
+        { id: 'tf-212', label: 'TensorFlow2.12/CUDA 11.8/Python 3.9/ubuntu 20.04', size: '9.5GB' }
+      ] 
+    },
+    { 
+      id: 'miniconda', 
+      name: 'Miniconda', 
+      versions: [
+        { id: 'mc-310', label: 'Miniconda3/Python 3.10/Linux-x86_64', size: '1.2GB' },
+        { id: 'mc-39', label: 'Miniconda3/Python 3.9/Linux-x86_64', size: '1.1GB' }
+      ] 
+    },
+    { 
+      id: 'ubuntu', 
+      name: 'Ubuntu', 
+      versions: [
+        { id: 'u-22', label: 'Ubuntu 22.04 LTS/Base/Clean', size: '2.1GB' },
+        { id: 'u-20', label: 'Ubuntu 20.04 LTS/Base/Clean', size: '1.8GB' }
+      ] 
+    }
   ],
-  preinstalled: [
-    { id: 'pt21', name: 'PyTorch 2.1.0', version: 'CUDA 12.1 / Python 3.10', downloads: '450K', size: '12.4GB' },
-    { id: 'tf215', name: 'TensorFlow 2.15', version: 'CUDA 11.8 / Python 3.9', downloads: '210K', size: '10.2GB' },
+  custom: [
+    { 
+      id: 'my-model-base', 
+      name: 'LLM-Training-Base', 
+      badge: '私有镜像',
+      versions: [
+        { id: 'v1-0', label: 'Base/CUDA 12.1/Python 3.10/v1.0-stable', size: '42.5GB' },
+        { id: 'v1-1-beta', label: 'Base/CUDA 12.1/Python 3.10/v1.1-beta', size: '42.8GB' }
+      ] 
+    }
   ],
-  community: [
-    { id: 'sd-xl', name: 'Stable Diffusion XL 1.0', version: 'WebUI / ComfyUI / ControlNet', downloads: '15K', size: '18.5GB', author: '秋叶' },
-    { id: 'llama3', name: 'Llama-3-70B-Chat', version: 'Int4 / Ollama Runtime', downloads: '8K', size: '42GB', author: 'Llama-Family' },
-  ]
+  shared: [
+    { 
+      id: 'team-diffusion', 
+      name: 'Team-SDXL-Optimized', 
+      badge: '团队共享',
+      versions: [{ id: 'v1', label: 'SDXL/WebUI/ControlNet v1.1/Optimized', size: '18.5GB' }],
+      author: 'AI-Team'
+    }
+  ],
+  external: [] 
 };
 
 const STORAGE_TYPES = [
@@ -124,10 +172,27 @@ const InstanceDeployment: React.FC<InstanceDeploymentProps> = ({ onBack }) => {
   const [selectedDriver, setSelectedDriver] = useState(DRIVER_VERSIONS[0]);
   const [gpuCount, setGpuCount] = useState(1);
   const [instanceCount, setInstanceCount] = useState(1);
-  const [imageCategory, setImageCategory] = useState('preinstalled');
-  const [selectedImage, setSelectedImage] = useState('pt21');
-  const [extraStorage, setExtraStorage] = useState<StorageItem[]>([]);
   
+  // Image Selection State
+  const [imageCategory, setImageCategory] = useState('prebuilt');
+  const [selectedImageId, setSelectedImageId] = useState('pytorch');
+  const [selectedVersionMap, setSelectedVersionMap] = useState<Record<string, string>>({
+    'pytorch': 'pt-270',
+    'tensorflow': 'tf-215',
+    'miniconda': 'mc-310',
+    'ubuntu': 'u-22',
+    'my-model-base': 'v1-0',
+    'team-diffusion': 'v1'
+  });
+
+  // Additional Image Config State
+  const [startupCommand, setStartupCommand] = useState('');
+  const [externalUrl, setExternalUrl] = useState('');
+  const [hasExternalAuth, setHasExternalAuth] = useState(false);
+  const [externalUsername, setExternalUsername] = useState('');
+  const [externalPassword, setExternalPassword] = useState('');
+
+  const [extraStorage, setExtraStorage] = useState<StorageItem[]>([]);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [showRegionDropdown, setShowRegionDropdown] = useState(false);
   const [showStorageDropdown, setShowStorageDropdown] = useState(false);
@@ -235,7 +300,11 @@ const InstanceDeployment: React.FC<InstanceDeploymentProps> = ({ onBack }) => {
   };
 
   const currentGpu = ALL_GPU_SPECS.find(g => g.id === selectedGpu);
-  const imagesToShow = ADVANCED_IMAGES[imageCategory] || [];
+  const imagesToShow = IMAGES_BY_CAT[imageCategory] || [];
+  const activeImage = imagesToShow.find(img => img.id === selectedImageId);
+  const activeVersionId = selectedVersionMap[selectedImageId];
+  const activeVersion = activeImage?.versions.find(v => v.id === activeVersionId);
+
   const extraStorageSize = extraStorage.reduce((acc, s) => acc + s.size, 0);
   const storagePrice = extraStorage.reduce((acc, s) => {
     if (!s.isNew) return acc;
@@ -249,7 +318,6 @@ const InstanceDeployment: React.FC<InstanceDeploymentProps> = ({ onBack }) => {
   const gpuSubtotal = (currentGpu?.price || 0) * gpuCount;
   const totalPrice = ((gpuSubtotal + storagePrice) * instanceCount).toFixed(2);
   const activePartition = PARTITIONS.find(p => p.id === selectedPartition);
-  const activeImage = imagesToShow.find(img => img.id === selectedImage);
 
   const renderMountButton = () => (
     <div className="relative" ref={storageDropdownRef}>
@@ -281,6 +349,13 @@ const InstanceDeployment: React.FC<InstanceDeploymentProps> = ({ onBack }) => {
       )}
     </div>
   );
+
+  const handleVersionChange = (imageId: string, versionId: string) => {
+    setSelectedVersionMap(prev => ({
+      ...prev,
+      [imageId]: versionId
+    }));
+  };
 
   return (
     <div className="max-w-7xl mx-auto space-y-6 pb-20 relative">
@@ -358,13 +433,13 @@ const InstanceDeployment: React.FC<InstanceDeploymentProps> = ({ onBack }) => {
                 className="flex items-center space-x-1.5 text-xs font-bold text-gray-400 hover:text-blue-600 transition-colors py-1 px-3 rounded-lg hover:bg-blue-50 border border-transparent hover:border-blue-100"
               >
                 <Settings2 size={14} />
-                <span>高级配置</span>
+                <span>高级配置（K8S集群）</span>
                 {showAdvanced ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
               </button>
             </div>
 
             {showAdvanced && (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-8 animate-in fade-in slide-in-from-top-2">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8 animate-in fade-in slide-in-from-top-2 pt-2 border-t border-gray-50">
                 <div className="space-y-3">
                   <label className="text-xs font-bold text-gray-500 uppercase tracking-wider flex items-center">
                     <Globe size={14} className="mr-2 text-gray-400" /> 集群
@@ -377,6 +452,7 @@ const InstanceDeployment: React.FC<InstanceDeploymentProps> = ({ onBack }) => {
                     >
                       <option value="c-sh-01">SH-Fast-H100-Auto-Scaling-01</option>
                       <option value="c-bj-01">BJ-North-Cluster-GPU-30</option>
+                      <option value="c-sz-01">SZ-South-Edge-Cluster-02</option>
                     </select>
                     <ChevronDown size={16} className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
                   </div>
@@ -651,29 +727,157 @@ const InstanceDeployment: React.FC<InstanceDeploymentProps> = ({ onBack }) => {
                 <h2 className="font-bold text-gray-800">3. 镜像选择与基础环境</h2>
               </div>
               <div className="flex space-x-1 bg-gray-100 p-1 rounded-xl">
-                {['official', 'preinstalled', 'community'].map(cat => (
-                  <button key={cat} onClick={() => setImageCategory(cat)} className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${imageCategory === cat ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500'}`}>
-                    {cat === 'official' ? '基础镜像' : cat === 'preinstalled' ? '深度学习' : '社区应用'}
+                {[
+                  { id: 'prebuilt', label: '预制镜像' },
+                  { id: 'custom', label: '自定义镜像' },
+                  { id: 'shared', label: '共享镜像' },
+                  { id: 'external', label: '外部镜像' }
+                ].map(cat => (
+                  <button 
+                    key={cat.id} 
+                    onClick={() => setImageCategory(cat.id)} 
+                    className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${imageCategory === cat.id ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500'}`}
+                  >
+                    {cat.label}
                   </button>
                 ))}
               </div>
             </div>
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {imagesToShow.map((img: ImageItem) => (
-                <button key={img.id} onClick={() => setSelectedImage(img.id)} className={`p-4 rounded-xl border-2 flex flex-col text-left transition-all ${selectedImage === img.id ? 'border-blue-600 bg-blue-50/20' : 'border-gray-100 bg-white'}`}>
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <h4 className="font-bold text-gray-900">{img.name}</h4>
-                      <p className="text-xs text-blue-500 font-medium mt-0.5">{img.version}</p>
+              {imageCategory !== 'external' && imagesToShow.length > 0 ? imagesToShow.map((img: ImageItem) => {
+                const currentVersionId = selectedVersionMap[img.id];
+                const currentVersion = img.versions.find(v => v.id === currentVersionId);
+                const isSelected = selectedImageId === img.id;
+
+                return (
+                  <div 
+                    key={img.id} 
+                    onClick={() => setSelectedImageId(img.id)}
+                    className={`p-6 rounded-2xl border-2 flex flex-col text-left transition-all cursor-pointer relative group ${
+                      isSelected ? 'border-blue-400 bg-white shadow-md' : 'border-gray-100 bg-white hover:border-gray-200'
+                    }`}
+                  >
+                    {/* Badge */}
+                    {(img.badge || img.author) && (
+                      <div className="absolute top-4 right-4">
+                        <span className="bg-blue-100 text-blue-600 px-3 py-1 rounded-lg text-[11px] font-bold">
+                          {img.badge || img.author}
+                        </span>
+                      </div>
+                    )}
+
+                    {/* Title & Core Version */}
+                    <div className="mb-4">
+                      <h4 className="text-xl font-bold text-gray-900">
+                        {img.name} {currentVersion?.label.split('/')[0].replace(img.name, '').trim()}
+                      </h4>
                     </div>
-                    {img.author && <span className="text-[9px] bg-indigo-50 text-indigo-600 px-1.5 py-0.5 rounded font-bold">{img.author}</span>}
+
+                    {/* Version Selector Row */}
+                    <div className="flex items-center group/version mb-6 relative" onClick={(e) => e.stopPropagation()}>
+                      <div className="relative flex-1">
+                        <select 
+                          value={currentVersionId}
+                          onChange={(e) => handleVersionChange(img.id, e.target.value)}
+                          className="w-full appearance-none bg-transparent text-blue-500 text-sm font-medium pr-8 outline-none cursor-pointer"
+                        >
+                          {img.versions.map(v => (
+                            <option key={v.id} value={v.id}>{v.label}</option>
+                          ))}
+                        </select>
+                        <ChevronDown size={18} className="absolute right-0 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none group-hover/version:text-blue-500 transition-colors" />
+                      </div>
+                    </div>
+
+                    {/* Footer: Size */}
+                    <div className="flex items-center space-x-2 text-gray-400">
+                      <HardDrive size={16} />
+                      <span className="text-sm font-medium">{currentVersion?.size}</span>
+                    </div>
                   </div>
-                  <div className="mt-4 flex items-center space-x-4 text-[10px] text-gray-400 font-bold uppercase">
-                    <span className="flex items-center"><Download size={10} className="mr-1" /> {img.downloads}</span>
-                    <span className="flex items-center"><HardDrive size={10} className="mr-1" /> {img.size}</span>
+                );
+              }) : imageCategory !== 'external' ? (
+                <div className="col-span-2 py-12 flex flex-col items-center justify-center text-gray-400 bg-gray-50 rounded-xl border border-dashed border-gray-200">
+                  <Box size={32} className="opacity-20 mb-2" />
+                  <p className="text-sm">该分类下暂无可用镜像</p>
+                </div>
+              ) : null}
+            </div>
+
+            {/* Additional Configs for selected Image (Startup Cmd, Auth for External) */}
+            <div className="space-y-6 pt-2">
+              {/* External Image Registry Details */}
+              {imageCategory === 'external' && (
+                <div className="bg-gray-50/50 border border-gray-100 rounded-xl p-6 space-y-6 animate-in slide-in-from-top-4">
+                  <div className="space-y-3">
+                    <label className="text-xs font-bold text-gray-500 uppercase tracking-wider flex items-center">
+                       <Globe size={14} className="mr-2 text-blue-500" /> 外部镜像地址
+                    </label>
+                    <input 
+                      type="text"
+                      value={externalUrl}
+                      onChange={(e) => setExternalUrl(e.target.value)}
+                      placeholder="registry.example.com/my-image:latest"
+                      className="w-full bg-white border border-gray-100 rounded-xl py-3 px-4 text-sm font-medium text-gray-700 outline-none focus:ring-2 focus:ring-blue-500"
+                    />
                   </div>
-                </button>
-              ))}
+
+                  <div className="flex items-center space-x-3">
+                    <button 
+                      onClick={() => setHasExternalAuth(!hasExternalAuth)}
+                      className={`w-10 h-6 rounded-full transition-colors relative ${hasExternalAuth ? 'bg-blue-600' : 'bg-gray-300'}`}
+                    >
+                      <div className={`absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform ${hasExternalAuth ? 'translate-x-4' : ''}`}></div>
+                    </button>
+                    <span className="text-sm font-bold text-gray-700">此镜像需要身份验证</span>
+                  </div>
+
+                  {hasExternalAuth && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 animate-in zoom-in-95">
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">用户名</label>
+                        <div className="relative">
+                          <input 
+                            type="text"
+                            value={externalUsername}
+                            onChange={(e) => setExternalUsername(e.target.value)}
+                            className="w-full bg-white border border-gray-100 rounded-xl py-2 px-4 text-sm font-medium outline-none focus:ring-1 focus:ring-blue-500"
+                          />
+                        </div>
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">密码 / Access Token</label>
+                        <div className="relative">
+                          <input 
+                            type="password"
+                            value={externalPassword}
+                            onChange={(e) => setExternalPassword(e.target.value)}
+                            className="w-full bg-white border border-gray-100 rounded-xl py-2 px-4 text-sm font-medium outline-none focus:ring-1 focus:ring-blue-500"
+                          />
+                          <Lock size={14} className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-300" />
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Startup Command (Visible for custom, shared, external) */}
+              {['custom', 'shared', 'external'].includes(imageCategory) && (
+                <div className="bg-gray-50/50 border border-gray-100 rounded-xl p-6 space-y-3 animate-in fade-in">
+                  <label className="text-xs font-bold text-gray-500 uppercase tracking-wider flex items-center">
+                    <Terminal size={14} className="mr-2 text-blue-500" /> 启动命令 (Startup Command)
+                  </label>
+                  <textarea 
+                    value={startupCommand}
+                    onChange={(e) => setStartupCommand(e.target.value)}
+                    placeholder="例如: /usr/bin/python3 /app/main.py --port 8080"
+                    className="w-full bg-white border border-gray-100 rounded-xl py-3 px-4 text-sm font-mono text-gray-600 outline-none focus:ring-2 focus:ring-blue-500 min-h-[100px] resize-none"
+                  ></textarea>
+                  <p className="text-[10px] text-gray-400">留空则执行镜像默认 Entrypoint 或 CMD</p>
+                </div>
+              )}
             </div>
           </section>
         </div>
@@ -726,7 +930,7 @@ const InstanceDeployment: React.FC<InstanceDeploymentProps> = ({ onBack }) => {
               {extraStorage.length > 0 && (
                 <div className="flex justify-between items-center text-sm">
                   <div>
-                    <span className="text-gray-400 font-medium">块存储: </span>
+                    <span className="text-gray-400 font-medium">数据盘: </span>
                     <span className="text-gray-900 font-bold">{extraStorageSize}GB</span>
                   </div>
                   {storagePrice > 0 && <span className="text-[11px] font-bold text-orange-500">¥{storagePrice.toFixed(1)}/小时</span>}
@@ -739,8 +943,18 @@ const InstanceDeployment: React.FC<InstanceDeploymentProps> = ({ onBack }) => {
             <div className="space-y-3.5">
               <div className="flex justify-between items-center text-sm">
                 <div>
+                  <span className="text-gray-400 font-medium">镜像: </span>
+                  <span className="text-gray-900 font-bold truncate max-w-[120px]" title={imageCategory === 'external' ? '外部镜像' : activeImage?.name}>
+                    {imageCategory === 'external' ? '外部镜像' : (activeImage?.name || '未选择')}
+                  </span>
+                </div>
+              </div>
+              <div className="flex justify-between items-center text-sm">
+                <div>
                   <span className="text-gray-400 font-medium">镜像版本: </span>
-                  <span className="text-gray-900 font-bold">{activeImage?.version.split(' / ')[0] || 'Base Version'}</span>
+                  <span className="text-gray-900 font-bold text-xs truncate max-w-[120px]">
+                    {imageCategory === 'external' ? (externalUrl || '未输入地址') : (activeVersion?.label.split('/')[0] || 'Base Version')}
+                  </span>
                 </div>
               </div>
             </div>
