@@ -91,7 +91,7 @@ const STORAGE_TYPES = [
 
 const PARTITIONS = [
   { id: 'hb1', name: '华北一区', desc: '推荐分区' },
-  { id: 'hb2', name: '华北一区', desc: 'A800专区' },
+  { id: 'hb2', name: '华北一区', desc: 'A800专专区' },
   { id: 'hd1', name: '华东一区', desc: '4090专区' },
 ];
 
@@ -250,6 +250,37 @@ const InstanceDeployment: React.FC<InstanceDeploymentProps> = ({ onBack }) => {
   const totalPrice = ((gpuSubtotal + storagePrice) * instanceCount).toFixed(2);
   const activePartition = PARTITIONS.find(p => p.id === selectedPartition);
   const activeImage = imagesToShow.find(img => img.id === selectedImage);
+
+  const renderMountButton = () => (
+    <div className="relative" ref={storageDropdownRef}>
+      <button 
+        onClick={() => setShowStorageDropdown(!showStorageDropdown)}
+        className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-xl text-sm font-bold flex items-center space-x-2 transition-all active:scale-95 shadow-lg shadow-blue-100"
+      >
+        <Plus size={18} />
+        <span>挂载数据盘</span>
+        <ChevronDown size={14} className={`transition-transform duration-200 ${showStorageDropdown ? 'rotate-180' : ''}`} />
+      </button>
+      {showStorageDropdown && (
+        <div className="absolute left-0 top-full mt-2 w-80 bg-white border border-gray-200 shadow-2xl rounded-2xl p-2 z-[60] animate-in fade-in slide-in-from-top-4">
+          <div className="px-3 py-2 text-[10px] font-bold text-gray-400 uppercase tracking-widest border-b border-gray-50 mb-1">选择存储类型</div>
+          {STORAGE_TYPES.map(type => (
+            <button 
+              key={type.id} 
+              onClick={() => addStorage(type.id)} 
+              className="w-full flex items-start space-x-3 p-3 hover:bg-gray-50 rounded-xl text-left transition-colors group/item"
+            >
+              <div className={`mt-0.5 p-2 rounded-lg bg-${type.color}-50 text-${type.color}-600 group-hover/item:scale-110 transition-transform`}>{type.icon}</div>
+              <div className="flex-1">
+                <p className="text-xs font-bold text-gray-800">{type.name}</p>
+                <p className="text-[10px] text-gray-400 leading-tight mt-0.5">{type.desc}</p>
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 
   return (
     <div className="max-w-7xl mx-auto space-y-6 pb-20 relative">
@@ -468,10 +499,12 @@ const InstanceDeployment: React.FC<InstanceDeploymentProps> = ({ onBack }) => {
               </div>
             </div>
 
-            <div className="space-y-6">
+            <div className="space-y-4">
               <div className="bg-white border border-gray-100 rounded-xl p-6 flex items-center justify-between shadow-sm">
                 <div className="flex items-center space-x-4">
-                  <div className="w-6 h-6 bg-blue-200 rounded-md"></div>
+                  <div className="p-1.5 bg-blue-50 rounded-lg text-blue-500">
+                    <HardDrive size={18} />
+                  </div>
                   <div className="flex items-center space-x-4">
                     <span className="text-sm font-medium text-gray-900">系统盘 (Root SSD)</span>
                     <span className="text-sm text-gray-500">空间: 30GB</span>
@@ -480,13 +513,15 @@ const InstanceDeployment: React.FC<InstanceDeploymentProps> = ({ onBack }) => {
                 </div>
               </div>
 
-              <div className="bg-white border border-gray-100 rounded-xl p-6 shadow-sm space-y-4">
-                <div className="flex items-center space-x-3 mb-6">
-                  <div className="w-6 h-6 bg-blue-200 rounded-md"></div>
-                  <span className="text-sm font-bold text-gray-900">数据盘</span>
-                </div>
+              {extraStorage.length > 0 ? (
+                <div className="bg-white border border-gray-100 rounded-xl p-6 shadow-sm space-y-4 animate-in fade-in zoom-in-95 duration-200">
+                  <div className="flex items-center space-x-3 mb-6">
+                    <div className="p-1.5 bg-blue-50 rounded-lg text-blue-500">
+                      <Database size={18} />
+                    </div>
+                    <span className="text-sm font-bold text-gray-900">数据盘</span>
+                  </div>
 
-                {extraStorage.length > 0 && (
                   <div className="space-y-6">
                     {extraStorage.map((storage) => {
                       const typeInfo = STORAGE_TYPES.find(t => t.id === storage.type);
@@ -595,37 +630,16 @@ const InstanceDeployment: React.FC<InstanceDeploymentProps> = ({ onBack }) => {
                       )
                     })}
                   </div>
-                )}
-
-                <div className="relative mt-4" ref={storageDropdownRef}>
-                  <button 
-                    onClick={() => setShowStorageDropdown(!showStorageDropdown)}
-                    className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-xl text-sm font-bold flex items-center space-x-2 transition-all active:scale-95 shadow-lg shadow-blue-100"
-                  >
-                    <Plus size={18} />
-                    <span>挂载数据盘</span>
-                    <ChevronDown size={14} className={`transition-transform duration-200 ${showStorageDropdown ? 'rotate-180' : ''}`} />
-                  </button>
-                  {showStorageDropdown && (
-                    <div className="absolute left-0 top-full mt-2 w-80 bg-white border border-gray-200 shadow-2xl rounded-2xl p-2 z-[60] animate-in fade-in slide-in-from-top-4">
-                      <div className="px-3 py-2 text-[10px] font-bold text-gray-400 uppercase tracking-widest border-b border-gray-50 mb-1">选择存储类型</div>
-                      {STORAGE_TYPES.map(type => (
-                        <button 
-                          key={type.id} 
-                          onClick={() => addStorage(type.id)} 
-                          className="w-full flex items-start space-x-3 p-3 hover:bg-gray-50 rounded-xl text-left transition-colors group/item"
-                        >
-                          <div className={`mt-0.5 p-2 rounded-lg bg-${type.color}-50 text-${type.color}-600 group-hover/item:scale-110 transition-transform`}>{type.icon}</div>
-                          <div className="flex-1">
-                            <p className="text-xs font-bold text-gray-800">{type.name}</p>
-                            <p className="text-[10px] text-gray-400 leading-tight mt-0.5">{type.desc}</p>
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-                  )}
+                  
+                  <div className="mt-4">
+                    {renderMountButton()}
+                  </div>
                 </div>
-              </div>
+              ) : (
+                <div className="pt-2">
+                  {renderMountButton()}
+                </div>
+              )}
             </div>
           </section>
 
