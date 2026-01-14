@@ -103,6 +103,7 @@ interface StorageItem {
   size: number;
   isNew: boolean;
   selectedVolumeId?: string;
+  isInitial?: boolean;
 }
 
 const MOCK_EXISTING_VOLUMES: Record<string, { id: string, name: string, size: number }[]> = {
@@ -114,7 +115,7 @@ const MOCK_EXISTING_VOLUMES: Record<string, { id: string, name: string, size: nu
     { id: 'vol-sh-881', name: 'shared-nas-volume', size: 2000 },
     { id: 'vol-sh-992', name: 'global-weights-repo', size: 512 },
   ],
-  local: []
+  local: [] 
 };
 
 const InstanceDeployment: React.FC<InstanceDeploymentProps> = ({ onBack }) => {
@@ -186,13 +187,17 @@ const InstanceDeployment: React.FC<InstanceDeploymentProps> = ({ onBack }) => {
       path = `/root/data${nextIdx}`;
     }
 
+    const existingVolumes = MOCK_EXISTING_VOLUMES[typeId] || [];
+    const forceNew = existingVolumes.length === 0;
+
     const newStorage: StorageItem = {
       id: Math.random().toString(36).substring(2, 9),
       type: typeId,
-      name: `新建 ${storageType.name.split(' (')[0]}`,
+      name: forceNew ? `eb-${typeId}-vol-${(extraStorage.filter(s => s.type === typeId).length + 1).toString().padStart(2, '0')}` : '',
       mountPath: path,
       size: typeId === 'shared' ? 2000 : 50,
-      isNew: true
+      isNew: forceNew,
+      isInitial: !forceNew
     };
 
     setExtraStorage([...extraStorage, newStorage]);
@@ -204,9 +209,13 @@ const InstanceDeployment: React.FC<InstanceDeploymentProps> = ({ onBack }) => {
     setExtraStorage(extraStorage.map(s => {
       if (s.id !== id) return s;
       const updated = { ...s, ...updates };
-      if (updates.isNew === true) {
-        const typeInfo = STORAGE_TYPES.find(t => t.id === s.type);
-        updated.name = `新建 ${typeInfo?.name.split(' (')[0] || ''}`;
+
+      if (updates.isNew === true && !s.isNew) {
+        updated.isInitial = false;
+        if (!updated.name || updated.name === '') {
+          const typeCount = extraStorage.filter(item => item.type === s.type && item.isNew).length + 1;
+          updated.name = `eb-${s.type}-vol-${typeCount.toString().padStart(2, '0')}`;
+        }
         updated.selectedVolumeId = undefined;
       } else if (updates.selectedVolumeId) {
         const existing = MOCK_EXISTING_VOLUMES[s.type]?.find(v => v.id === updates.selectedVolumeId);
@@ -214,8 +223,13 @@ const InstanceDeployment: React.FC<InstanceDeploymentProps> = ({ onBack }) => {
           updated.name = existing.name;
           updated.size = existing.size;
           updated.isNew = false;
+          updated.isInitial = false;
         }
+      } else if (updates.isNew === false && s.isNew) {
+         updated.isInitial = true;
+         updated.name = '';
       }
+      
       return updated;
     }));
   };
@@ -230,7 +244,6 @@ const InstanceDeployment: React.FC<InstanceDeploymentProps> = ({ onBack }) => {
     return acc;
   }, 0);
 
-  // Scaled values
   const scaledCores = (currentGpu?.baseCores || 0) * gpuCount;
   const scaledRam = (currentGpu?.baseRam || 0) * gpuCount;
   const gpuSubtotal = (currentGpu?.price || 0) * gpuCount;
@@ -258,7 +271,7 @@ const InstanceDeployment: React.FC<InstanceDeploymentProps> = ({ onBack }) => {
           <button onClick={onBack} className="p-2 hover:bg-white rounded-full transition-colors border border-transparent hover:border-gray-200">
             <ChevronLeft size={20} className="text-gray-600" />
           </button>
-          <div>
+          <div className="flex flex-col">
             <h1 className="text-2xl font-bold text-gray-800">定制 GPU 智算实例</h1>
             <p className="text-xs text-gray-500 mt-0.5">控制台 / 算力服务 / 部署实例</p>
           </div>
@@ -319,7 +332,6 @@ const InstanceDeployment: React.FC<InstanceDeploymentProps> = ({ onBack }) => {
               </button>
             </div>
 
-            {/* Cluster and Namespace inputs - Collapsible */}
             {showAdvanced && (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-8 animate-in fade-in slide-in-from-top-2">
                 <div className="space-y-3">
@@ -353,7 +365,6 @@ const InstanceDeployment: React.FC<InstanceDeploymentProps> = ({ onBack }) => {
               </div>
             )}
 
-            {/* GPU Cards */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               {ALL_GPU_SPECS.map(gpu => (
                 <div key={gpu.id} className="relative h-full">
@@ -373,26 +384,30 @@ const InstanceDeployment: React.FC<InstanceDeploymentProps> = ({ onBack }) => {
                     </div>
                     <div className="space-y-1 text-[11px] text-gray-500 mb-4">
                       <p>显存: {gpu.vram}</p>
+                      <div className="flex items-center space-x-3">
+                        <span>CPU: {gpu.baseCores}core</span>
+                        <span>内存: {gpu.baseRam}GB</span>
+                      </div>
                     </div>
 
                     <div className="mt-auto pt-3 border-t border-gray-100/50">
-                      <div className="flex items-center justify-between mb-1.5">
-                        <label className="text-[10px] font-bold text-gray-400 uppercase tracking-tighter">驱动版本</label>
-                      </div>
-                      <div className="relative" onClick={(e) => e.stopPropagation()}>
-                        <select 
-                          value={selectedDriver}
-                          onChange={(e) => setSelectedDriver(e.target.value)}
-                          disabled={!gpu.availableIn.includes(selectedPartition)}
-                          className={`w-full text-[10px] font-bold py-2 px-2 rounded-lg border outline-none appearance-none transition-colors ${
-                            selectedGpu === gpu.id 
-                            ? 'bg-[#f8fafc] border-gray-100 text-gray-700' 
-                            : 'bg-gray-50/80 border-gray-100 text-gray-600'
-                          }`}
-                        >
-                          {DRIVER_VERSIONS.map(v => <option key={v} value={v}>{v}</option>)}
-                        </select>
-                        <ChevronDown size={10} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                      <div className="flex items-center space-x-3">
+                        <label className="text-[10px] font-bold text-gray-400 uppercase tracking-tighter shrink-0">驱动版本</label>
+                        <div className="relative flex-1" onClick={(e) => e.stopPropagation()}>
+                          <select 
+                            value={selectedDriver}
+                            onChange={(e) => setSelectedDriver(e.target.value)}
+                            disabled={!gpu.availableIn.includes(selectedPartition)}
+                            className={`w-full text-[10px] font-bold py-1 px-2 rounded-lg border outline-none appearance-none transition-colors ${
+                              selectedGpu === gpu.id 
+                              ? 'bg-[#f8fafc] border-gray-100 text-gray-700' 
+                              : 'bg-gray-50/80 border-gray-100 text-gray-600'
+                            }`}
+                          >
+                            {DRIVER_VERSIONS.map(v => <option key={v} value={v}>{v}</option>)}
+                          </select>
+                          <ChevronDown size={10} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                        </div>
                       </div>
                     </div>
                   </button>
@@ -415,7 +430,6 @@ const InstanceDeployment: React.FC<InstanceDeploymentProps> = ({ onBack }) => {
               ))}
             </div>
 
-            {/* GPU Count Selection */}
             <div className="pt-2">
               <label className="text-xs font-bold text-gray-400 uppercase mb-3 block">卡数量</label>
               <div className="flex p-1 bg-gray-50 rounded-xl w-fit border border-gray-100">
@@ -433,7 +447,6 @@ const InstanceDeployment: React.FC<InstanceDeploymentProps> = ({ onBack }) => {
               </div>
             </div>
 
-            {/* "Current Selection" Banner with scaled specs */}
             <div className="bg-blue-50/50 border border-blue-100 rounded-xl px-4 py-3 flex items-center space-x-3 mt-4">
               <div className="bg-blue-100 p-1.5 rounded-lg text-blue-600">
                 <Zap size={16} />
@@ -475,40 +488,61 @@ const InstanceDeployment: React.FC<InstanceDeploymentProps> = ({ onBack }) => {
 
                 {extraStorage.length > 0 && (
                   <div className="space-y-6">
-                    {extraStorage.map((storage, idx) => {
+                    {extraStorage.map((storage) => {
                       const typeInfo = STORAGE_TYPES.find(t => t.id === storage.type);
-                      const isShared = storage.type === 'shared';
-                      const isBlock = storage.type === 'block';
                       const existingVolumes = MOCK_EXISTING_VOLUMES[storage.type] || [];
-                      const typeLabel = isShared ? '共享存储卷名称' : isBlock ? '云硬盘名称' : '数据盘名称';
 
                       return (
                         <div key={storage.id} className="relative grid grid-cols-12 gap-4 items-end animate-in fade-in slide-in-from-top-1">
                           <div className="col-span-4 space-y-2">
-                            <label className="text-xs text-gray-400 font-medium flex items-center">
-                              {typeLabel}
-                              {storage.isNew && <span className="ml-2 bg-green-50 text-green-600 px-1 rounded text-[9px] font-black uppercase">新建</span>}
-                            </label>
+                            <div className="flex items-center space-x-2 mb-1">
+                              <label className="text-xs text-gray-400 font-medium">{typeInfo?.name.split(' (')[0]}名称</label>
+                              {storage.isNew && <span className="bg-green-50 text-green-600 px-1 rounded text-[9px] font-black uppercase">新建</span>}
+                            </div>
                             <div className="flex items-center space-x-2">
                               <div className="relative flex-1">
-                                <select 
-                                  value={storage.isNew ? 'new' : storage.selectedVolumeId} 
-                                  onChange={(e) => {
-                                    const val = e.target.value;
-                                    if (val === 'new') updateStorage(storage.id, { isNew: true });
-                                    else updateStorage(storage.id, { selectedVolumeId: val });
-                                  }}
-                                  className="w-full bg-white border border-gray-200 rounded-lg py-2 px-3 text-sm font-medium outline-none appearance-none pr-10 hover:border-blue-400 transition-colors"
-                                >
-                                  <option value="new">新建 {typeInfo?.name.split(' (')[0]}</option>
-                                  {existingVolumes.length > 0 && <optgroup label="挂载已有卷">
-                                    {existingVolumes.map(v => <option key={v.id} value={v.id}>{v.name} ({v.size}GB)</option>)}
-                                  </optgroup>}
-                                </select>
-                                <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                                {storage.isNew ? (
+                                  <input 
+                                    type="text" 
+                                    value={storage.name}
+                                    onChange={(e) => updateStorage(storage.id, { name: e.target.value })}
+                                    className="w-full bg-white border border-blue-400 rounded-lg py-2 px-3 text-sm font-medium outline-none focus:ring-1 focus:ring-blue-500 transition-colors"
+                                    placeholder="输入硬盘名称"
+                                  />
+                                ) : (
+                                  <div className="relative">
+                                    <select 
+                                      value={storage.isInitial ? 'none' : storage.selectedVolumeId} 
+                                      onChange={(e) => {
+                                        const val = e.target.value;
+                                        if (val === 'new') updateStorage(storage.id, { isNew: true });
+                                        else if (val === 'none') return;
+                                        else updateStorage(storage.id, { selectedVolumeId: val });
+                                      }}
+                                      className={`w-full bg-white border rounded-lg py-2 px-3 text-sm font-medium outline-none appearance-none pr-10 transition-colors ${
+                                        storage.isInitial ? 'text-gray-400 border-gray-200 hover:border-blue-300' : 'text-gray-900 border-gray-200 hover:border-blue-400'
+                                      }`}
+                                    >
+                                      <option value="none">请选择</option>
+                                      <option value="new">创建新 {typeInfo?.name.split(' (')[0]}</option>
+                                      {existingVolumes.length > 0 && <optgroup label="挂载已有卷">
+                                        {existingVolumes.map(v => <option key={v.id} value={v.id}>{v.name} ({v.size}GB)</option>)}
+                                      </optgroup>}
+                                    </select>
+                                    <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                                  </div>
+                                )}
                               </div>
-                              <button className="p-2 text-blue-500 hover:bg-blue-50 rounded-lg transition-colors" title="刷新存储列表">
-                                <RefreshCw size={16} />
+                              <button 
+                                onClick={() => {
+                                  if (storage.isNew && existingVolumes.length > 0) {
+                                    updateStorage(storage.id, { isNew: false, isInitial: true, name: '' });
+                                  }
+                                }}
+                                className="p-2 text-blue-500 hover:bg-blue-50 rounded-lg transition-colors" 
+                                title="切换/刷新存储"
+                              >
+                                {storage.isNew && existingVolumes.length > 0 ? <RotateCcw size={16} /> : <RefreshCw size={16} />}
                               </button>
                             </div>
                           </div>
@@ -549,7 +583,7 @@ const InstanceDeployment: React.FC<InstanceDeploymentProps> = ({ onBack }) => {
                             )}
                           </div>
 
-                          <div className="col-span-1 pb-1.5">
+                          <div className="col-span-1 pb-1.5 text-right">
                             <button 
                               onClick={() => setExtraStorage(extraStorage.filter(s => s.id !== storage.id))}
                               className="p-2 text-gray-300 hover:text-red-500 transition-colors rounded-lg hover:bg-red-50"
@@ -630,13 +664,10 @@ const InstanceDeployment: React.FC<InstanceDeploymentProps> = ({ onBack }) => {
           </section>
         </div>
 
-        {/* Sidebar Order Summary */}
         <div className="lg:col-span-1">
           <div className="bg-white rounded-2xl border border-gray-100 shadow-lg p-6 sticky top-6 space-y-5 flex flex-col">
-            {/* Sidebar Title */}
             <h3 className="text-base font-bold text-gray-900 border-b border-gray-50 pb-3">配置概要</h3>
 
-            {/* Group 1: Hardware & Location */}
             <div className="space-y-3.5 pt-1">
               <div className="flex justify-between items-center text-sm">
                 <div>
@@ -670,7 +701,6 @@ const InstanceDeployment: React.FC<InstanceDeploymentProps> = ({ onBack }) => {
 
             <hr className="border-gray-50" />
 
-            {/* Group 2: Storage */}
             <div className="space-y-3.5">
               <div className="flex justify-between items-center text-sm">
                 <div>
@@ -692,7 +722,6 @@ const InstanceDeployment: React.FC<InstanceDeploymentProps> = ({ onBack }) => {
 
             <hr className="border-gray-50" />
 
-            {/* Group 3: Image */}
             <div className="space-y-3.5">
               <div className="flex justify-between items-center text-sm">
                 <div>
@@ -704,7 +733,6 @@ const InstanceDeployment: React.FC<InstanceDeploymentProps> = ({ onBack }) => {
 
             <hr className="border-gray-50" />
 
-            {/* Group 4: Instance Quantity */}
             <div className="space-y-4">
               <div className="flex justify-between items-center">
                 <span className="text-sm text-gray-900 font-bold">数量</span>
@@ -730,7 +758,6 @@ const InstanceDeployment: React.FC<InstanceDeploymentProps> = ({ onBack }) => {
 
             <hr className="border-gray-50" />
 
-            {/* Total Section */}
             <div className="space-y-5">
               <div className="flex items-baseline justify-between">
                 <span className="text-lg font-bold text-gray-900">合计</span>
