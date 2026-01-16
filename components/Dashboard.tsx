@@ -83,7 +83,8 @@ const Dashboard: React.FC<DashboardProps> = ({ onCreateInstance }) => {
         ].map((stat, i) => (
           <div key={i} className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm flex items-center space-x-4">
             <div className={`${stat.bg} ${stat.color} p-3 rounded-xl`}>
-              {React.cloneElement(stat.icon as React.ReactElement, { size: 24 })}
+              {/* Fix: Explicitly cast React.ReactElement to accept custom props like 'size' during cloneElement */}
+              {React.cloneElement(stat.icon as React.ReactElement<{ size?: number }>, { size: 24 })}
             </div>
             <div>
               <p className="text-xs font-medium text-gray-400 uppercase tracking-wider">{stat.label}</p>

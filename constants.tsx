@@ -15,14 +15,16 @@ import {
   Key, 
   BarChart3, 
   Gift,
-  Home
+  Home,
+  Grid
 } from 'lucide-react';
-import { MenuItem, Instance, InstanceStatus, Cluster, ClusterNode } from './types';
+import { MenuItem, Instance, InstanceStatus, Cluster, ClusterNode, ResourcePool } from './types';
 
 export const MENU_ITEMS: MenuItem[] = [
   { id: 'dashboard', label: '控制台概览', icon: <Home size={18} />, category: '首页' },
-  { id: 'instances', label: '实例列表', icon: <LayoutDashboard size={18} />, category: 'GPU算力服务' },
-  { id: 'clusters', label: '集群管理', icon: <Layers size={18} />, category: 'GPU算力服务' },
+  { id: 'instances', label: '实例', icon: <LayoutDashboard size={18} />, category: 'GPU算力服务' },
+  { id: 'clusters', label: '集群', icon: <Layers size={18} />, category: 'GPU算力服务' },
+  { id: 'resource-pools', label: '资源池', icon: <Grid size={18} />, category: 'GPU算力服务' },
   { id: 'models', label: '模型库', icon: <Box size={18} />, category: 'GPU算力服务' },
   { id: 'disks', label: '云硬盘', icon: <Database size={18} />, category: 'GPU算力服务' },
   { id: 'storage', label: '云存储', icon: <Cloud size={18} />, category: 'GPU算力服务' },
@@ -80,6 +82,29 @@ export const MOCK_CLUSTERS: Cluster[] = [
     status: 'Healthy',
     nodeDetails: createNodes('sz', 2)
   },
+];
+
+export const MOCK_RESOURCE_POOLS: ResourcePool[] = [
+  {
+    id: 'pool-hb1-h100-4',
+    name: '华北一区-H100专属节点池',
+    region: '华北一区',
+    gpuType: 'NVIDIA H100',
+    totalCards: 4,
+    usedCards: 1,
+    expiryDate: '2024-12-31',
+    status: 'Healthy'
+  },
+  {
+    id: 'pool-hd1-a100-8',
+    name: '华东一区-A100专属节点池',
+    region: '华东一区',
+    gpuType: 'NVIDIA A100',
+    totalCards: 8,
+    usedCards: 8,
+    expiryDate: '2024-11-15',
+    status: 'Warning'
+  }
 ];
 
 export const MOCK_INSTANCES: Instance[] = [

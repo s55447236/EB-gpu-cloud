@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 import Layout from './components/Layout';
 import InstanceList from './components/InstanceList';
 import ClusterManagement from './components/ClusterManagement';
+import ResourcePools from './components/ResourcePools';
 import Dashboard from './components/Dashboard';
 import InstanceDeployment from './components/InstanceDeployment';
 import DesignGuidelines from './components/DesignGuidelines';
@@ -21,6 +22,8 @@ const App: React.FC = () => {
         return <InstanceDeployment onBack={() => setActiveTab('instances')} />;
       case 'clusters':
         return <ClusterManagement />;
+      case 'resource-pools':
+        return <ResourcePools />;
       case 'design-guidelines':
         return <DesignGuidelines />;
       default:

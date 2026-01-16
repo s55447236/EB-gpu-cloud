@@ -45,6 +45,17 @@ export interface Cluster {
   nodeDetails: ClusterNode[];
 }
 
+export interface ResourcePool {
+  id: string;
+  name: string;
+  region: string;
+  gpuType: string;
+  totalCards: number;
+  usedCards: number;
+  expiryDate: string;
+  status: 'Healthy' | 'Warning' | 'Expired';
+}
+
 export type ViewType = 'LIST' | 'CARD';
 
 export interface MenuItem {

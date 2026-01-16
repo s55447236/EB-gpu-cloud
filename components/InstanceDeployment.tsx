@@ -28,7 +28,9 @@ import {
   Copy,
   BookOpen,
   Monitor,
-  Search
+  Search,
+  Layers,
+  Calendar
 } from 'lucide-react';
 
 interface InstanceDeploymentProps {
@@ -194,7 +196,7 @@ const STORAGE_TYPES = [
 
 const PARTITIONS = [
   { id: 'hb1', name: '华北一区', desc: '推荐分区' },
-  { id: 'hb2', name: '华北一区', desc: 'A800专专区' },
+  { id: 'hb2', name: '华北一区', desc: 'A800专区' },
   { id: 'hd1', name: '华东一区', desc: '4090专区' },
 ];
 
@@ -222,27 +224,37 @@ const MOCK_EXISTING_VOLUMES: Record<string, { id: string, name: string, size: nu
 };
 
 const DEFAULT_TEMPLATES = {
-  initPackage: `# 以下命令目前均为注释状态，请根据所选镜像情况按需修改。若是所选镜像为开发机保存而来，通常不需要修改
+  initPackage: `# 以下命令目前均为注释状态，请根据所选镜像情况按需修改
 # 允许 root 用户基于密码登录
 # mkdir -p /etc/ssh
 # echo "PasswordAuthentication yes" >> /etc/ssh/sshd_config`,
-  initSSH: `# 以下命令初始化 root 密码及相关 k8s 环境变量，通常不需要修改
-# 配置 sshd 的监听端口
+  initSSH: `# 以下命令初始化 root 密码及相关 k8s 环境变量
 sed -i '/^[#[:space:]]*Port[[:space:]]/d' /etc/ssh/sshd_config
 echo "Port \${EBCS_SSH_PORT}" >> /etc/ssh/sshd_config`,
-  launch: `# 以下命令启动 jupyter-lab 及 sshd 服务，通常不需要修改
-# 后台启动 jupyter-lab
+  launch: `# 以下命令启动 jupyter-lab 及 sshd 服务
 if command -v jupyter-lab >/dev/null 2>&1 && [ -n "\${EBCS_JUPYTER_PORT}" ] && [ -n "\${EBCS_JUPYTER_TOKEN}" ]; then
     cd /root && jupyter-lab --allow-root --ip=0.0.0.0 --port=\${EBCS_JUPYTER_PORT} --NotebookApp.token=\${EBCS_JUPYTER_TOKEN} &
 fi`
 };
 
+const PAID_NODE_POOL = {
+  id: 'pool-hb1-h100-4',
+  name: '华北一区-H100专属节点池',
+  regionId: 'hb1',
+  gpuId: 'h100',
+  totalCards: 4,
+  usedCards: 1,
+  expiryDate: '2024-12-31',
+};
+
 const InstanceDeployment: React.FC<InstanceDeploymentProps> = ({ onBack }) => {
+  const [useExistingPool, setUseExistingPool] = useState(false);
   const [selectedPartition, setSelectedPartition] = useState('hb1');
   const [selectedGpu, setSelectedGpu] = useState('a100');
   const [selectedDriver, setSelectedDriver] = useState(DRIVER_VERSIONS[0]);
   const [gpuCount, setGpuCount] = useState(1);
   const [instanceCount, setInstanceCount] = useState(1);
+  const [billingCycle, setBillingCycle] = useState('hourly'); 
   
   // Image Selection State
   const [imageCategory, setImageCategory] = useState('prebuilt');
@@ -266,7 +278,6 @@ const InstanceDeployment: React.FC<InstanceDeploymentProps> = ({ onBack }) => {
   const [isImageModalOpen, setIsImageModalOpen] = useState(false);
   const [imageSearchTerm, setImageSearchTerm] = useState('');
 
-  // Startup Command Template States
   const [commandTemplates, setCommandTemplates] = useState(DEFAULT_TEMPLATES);
   const [expandedBlocks, setExpandedBlocks] = useState<Record<string, boolean>>({
     initPackage: true,
@@ -291,9 +302,16 @@ const InstanceDeployment: React.FC<InstanceDeploymentProps> = ({ onBack }) => {
   const toastTimerRef = useRef<number | null>(null);
   const storageDropdownRef = useRef<HTMLDivElement>(null);
 
-  // Maintain separate selected images for Custom and Shared to avoid mixing states
   const [selectedCustomImageId, setSelectedCustomImageId] = useState<string>('my-model-base');
   const [selectedSharedImageId, setSelectedSharedImageId] = useState<string>('team-diffusion');
+
+  useEffect(() => {
+    if (useExistingPool) {
+      setSelectedPartition(PAID_NODE_POOL.regionId);
+      setSelectedGpu(PAID_NODE_POOL.gpuId);
+      if (gpuCount > (PAID_NODE_POOL.totalCards - PAID_NODE_POOL.usedCards)) setGpuCount(1);
+    }
+  }, [useExistingPool]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -323,6 +341,7 @@ const InstanceDeployment: React.FC<InstanceDeploymentProps> = ({ onBack }) => {
   };
 
   const handleGpuSelect = (gpu: GpuSpec) => {
+    if (useExistingPool) return; // Locked in pool mode
     if (gpu.availableIn.includes(selectedPartition)) {
       setSelectedGpu(gpu.id);
       setPendingGpuId(null);
@@ -374,7 +393,6 @@ const InstanceDeployment: React.FC<InstanceDeploymentProps> = ({ onBack }) => {
     setExtraStorage(extraStorage.map(s => {
       if (s.id !== id) return s;
       const updated = { ...s, ...updates };
-
       if (updates.isNew === true && !s.isNew) {
         updated.isInitial = false;
         if (!updated.name || updated.name === '') {
@@ -394,26 +412,17 @@ const InstanceDeployment: React.FC<InstanceDeploymentProps> = ({ onBack }) => {
          updated.isInitial = true;
          updated.name = '';
       }
-      
       return updated;
     }));
   };
 
   const currentGpu = ALL_GPU_SPECS.find(g => g.id === selectedGpu);
-  
-  // Handle current image selection based on category
   const imagesToShow = IMAGES_BY_CAT[imageCategory] || [];
   let currentActiveId = selectedImageId;
   if (imageCategory === 'custom') currentActiveId = selectedCustomImageId;
   else if (imageCategory === 'shared') currentActiveId = selectedSharedImageId;
-
   let activeImage = imagesToShow.find(img => img.id === currentActiveId);
-  
-  // If no image is selected for the current category, default to the first one available
-  if (!activeImage && imagesToShow.length > 0) {
-    activeImage = imagesToShow[0];
-  }
-
+  if (!activeImage && imagesToShow.length > 0) activeImage = imagesToShow[0];
   const activeVersionId = activeImage ? selectedVersionMap[activeImage.id] : undefined;
   const activeVersion = activeImage?.versions.find(v => v.id === activeVersionId) || activeImage?.versions[0];
 
@@ -427,16 +436,29 @@ const InstanceDeployment: React.FC<InstanceDeploymentProps> = ({ onBack }) => {
 
   const scaledCores = (currentGpu?.baseCores || 0) * gpuCount;
   const scaledRam = (currentGpu?.baseRam || 0) * gpuCount;
-  const gpuSubtotal = (currentGpu?.price || 0) * gpuCount;
-  const totalPrice = ((gpuSubtotal + storagePrice) * instanceCount).toFixed(2);
+  const gpuSubtotal = useExistingPool ? 0 : (currentGpu?.price || 0) * gpuCount;
+  
+  let periodMultiplier = 1;
+  let unitSuffix = '/小时';
+  let discountFactor = 1.0;
+
+  if (billingCycle === 'daily') {
+    periodMultiplier = 24;
+    unitSuffix = '/天';
+    discountFactor = 0.95;
+  } else if (billingCycle === 'monthly') {
+    periodMultiplier = 24 * 30;
+    unitSuffix = '/月';
+    discountFactor = 0.9;
+  }
+
+  const totalPriceValue = ((gpuSubtotal + storagePrice) * instanceCount * periodMultiplier * discountFactor);
+  const totalPrice = totalPriceValue.toFixed(2);
   const activePartition = PARTITIONS.find(p => p.id === selectedPartition);
 
   const renderMountButton = () => (
     <div className="relative" ref={storageDropdownRef}>
-      <button 
-        onClick={() => setShowStorageDropdown(!showStorageDropdown)}
-        className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-xl text-sm font-bold flex items-center space-x-2 transition-all active:scale-95 shadow-lg shadow-blue-100"
-      >
+      <button onClick={() => setShowStorageDropdown(!showStorageDropdown)} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-xl text-sm font-bold flex items-center space-x-2 transition-all active:scale-95 shadow-lg shadow-blue-100">
         <Plus size={18} />
         <span>挂载数据盘</span>
         <ChevronDown size={14} className={`transition-transform duration-200 ${showStorageDropdown ? 'rotate-180' : ''}`} />
@@ -445,11 +467,7 @@ const InstanceDeployment: React.FC<InstanceDeploymentProps> = ({ onBack }) => {
         <div className="absolute left-0 top-full mt-2 w-80 bg-white border border-gray-200 shadow-2xl rounded-2xl p-2 z-[60] animate-in fade-in slide-in-from-top-4">
           <div className="px-3 py-2 text-[10px] font-bold text-gray-400 uppercase tracking-widest border-b border-gray-50 mb-1">选择存储类型</div>
           {STORAGE_TYPES.map(type => (
-            <button 
-              key={type.id} 
-              onClick={() => addStorage(type.id)} 
-              className="w-full flex items-start space-x-3 p-3 hover:bg-gray-50 rounded-xl text-left transition-colors group/item"
-            >
+            <button key={type.id} onClick={() => addStorage(type.id)} className="w-full flex items-start space-x-3 p-3 hover:bg-gray-50 rounded-xl text-left transition-colors group/item">
               <div className={`mt-0.5 p-2 rounded-lg bg-${type.color}-50 text-${type.color}-600 group-hover/item:scale-110 transition-transform`}>{type.icon}</div>
               <div className="flex-1">
                 <p className="text-xs font-bold text-gray-800">{type.name}</p>
@@ -463,10 +481,7 @@ const InstanceDeployment: React.FC<InstanceDeploymentProps> = ({ onBack }) => {
   );
 
   const handleVersionChange = (imageId: string, versionId: string) => {
-    setSelectedVersionMap(prev => ({
-      ...prev,
-      [imageId]: versionId
-    }));
+    setSelectedVersionMap(prev => ({ ...prev, [imageId]: versionId }));
   };
 
   const renderCodeBlock = (id: keyof typeof DEFAULT_TEMPLATES, title: string) => (
@@ -477,26 +492,15 @@ const InstanceDeployment: React.FC<InstanceDeploymentProps> = ({ onBack }) => {
       </div>
       <div className="bg-[#f8fafc] border border-gray-100 rounded-xl overflow-hidden">
         <div className={`px-4 py-3 transition-all ${expandedBlocks[id] ? 'h-auto' : 'h-14 overflow-hidden'}`}>
-          <textarea
-            value={commandTemplates[id]}
-            onChange={(e) => setCommandTemplates(prev => ({ ...prev, [id]: e.target.value }))}
-            className="w-full bg-transparent text-xs font-mono text-slate-700 outline-none resize-none leading-relaxed placeholder:text-gray-300 min-h-[80px]"
-            spellCheck={false}
-          />
+          <textarea value={commandTemplates[id]} onChange={(e) => setCommandTemplates(prev => ({ ...prev, [id]: e.target.value }))} className="w-full bg-transparent text-xs font-mono text-slate-700 outline-none resize-none leading-relaxed min-h-[80px]" spellCheck={false} />
         </div>
         <div className="px-4 py-2 border-t border-gray-100/50 bg-gray-50/30 flex items-center justify-between">
            <div className="flex items-center space-x-4">
-              <button 
-                onClick={() => toggleBlock(id)}
-                className="flex items-center space-x-1 text-[10px] font-bold text-blue-500 hover:text-blue-700 transition-colors"
-              >
+              <button onClick={() => toggleBlock(id)} className="flex items-center space-x-1 text-[10px] font-bold text-blue-500 hover:text-blue-700">
                 {expandedBlocks[id] ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
                 <span>{expandedBlocks[id] ? '收起' : '展开'}</span>
               </button>
-              <button 
-                onClick={() => resetBlock(id)}
-                className="flex items-center space-x-1 text-[10px] font-bold text-blue-500 hover:text-blue-700 transition-colors"
-              >
+              <button onClick={() => resetBlock(id)} className="flex items-center space-x-1 text-[10px] font-bold text-blue-500 hover:text-blue-700">
                 <RotateCcw size={12} />
                 <span>重置</span>
               </button>
@@ -511,38 +515,26 @@ const InstanceDeployment: React.FC<InstanceDeploymentProps> = ({ onBack }) => {
     return <div className={`p-1.5 ${img.iconColor || 'bg-gray-100'} text-white rounded-lg`}><Zap size={20} /></div>;
   };
 
-  const filteredModalImages = imagesToShow.filter(img => 
-    img.name.toLowerCase().includes(imageSearchTerm.toLowerCase())
-  );
+  const filteredModalImages = imagesToShow.filter(img => img.name.toLowerCase().includes(imageSearchTerm.toLowerCase()));
 
   return (
     <div className="max-w-7xl mx-auto space-y-6 pb-20 relative">
-      {/* Image Selection Modal */}
       {isImageModalOpen && (
         <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-white w-full max-w-4xl max-h-[80vh] rounded-3xl shadow-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-200">
+          <div className="bg-white w-full max-w-4xl max-h-[80vh] rounded-3xl shadow-2xl overflow-hidden flex flex-col">
             <div className="px-8 py-6 border-b border-gray-100 flex items-center justify-between">
               <div>
-                <h3 className="text-xl font-bold text-gray-900">选择{imageCategory === 'custom' ? '私有' : '团队共享'}镜像</h3>
-                <p className="text-sm text-gray-400 mt-1">从您的镜像库中选择适合的任务基础环境</p>
+                <h3 className="text-xl font-bold text-gray-900">选择镜像</h3>
               </div>
               <button onClick={() => setIsImageModalOpen(false)} className="p-2 hover:bg-gray-50 rounded-full text-gray-400 hover:text-gray-900 transition-all">
                 <X size={24} />
               </button>
             </div>
-            
             <div className="p-8 flex-1 overflow-y-auto space-y-6">
               <div className="relative">
                 <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
-                <input 
-                  type="text" 
-                  placeholder="搜索镜像名称..."
-                  value={imageSearchTerm}
-                  onChange={(e) => setImageSearchTerm(e.target.value)}
-                  className="w-full bg-gray-50 border border-gray-200 rounded-2xl py-3 pl-12 pr-4 text-sm font-medium outline-none focus:ring-2 focus:ring-blue-500 transition-shadow"
-                />
+                <input type="text" placeholder="搜索镜像名称..." value={imageSearchTerm} onChange={(e) => setImageSearchTerm(e.target.value)} className="w-full bg-gray-50 border border-gray-200 rounded-2xl py-3 pl-12 pr-4 text-sm font-medium outline-none" />
               </div>
-
               <div className="bg-white border border-gray-100 rounded-2xl overflow-hidden">
                 <table className="w-full text-left">
                   <thead>
@@ -554,52 +546,22 @@ const InstanceDeployment: React.FC<InstanceDeploymentProps> = ({ onBack }) => {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-50">
-                    {filteredModalImages.length > 0 ? filteredModalImages.map(img => (
-                      <tr key={img.id} className="hover:bg-gray-50/50 transition-colors group">
+                    {filteredModalImages.map(img => (
+                      <tr key={img.id} className="hover:bg-gray-50/50">
                         <td className="px-6 py-4">
-                          <div className="flex flex-col">
-                            <span className="font-bold text-gray-900 group-hover:text-blue-600 transition-colors">{img.name}</span>
-                            {img.badge && <span className="text-[10px] text-blue-500 font-bold mt-0.5">{img.badge}</span>}
-                          </div>
+                          <span className="font-bold text-gray-900">{img.name}</span>
                         </td>
                         <td className="px-6 py-4">
-                          <div className="relative w-48" onClick={(e) => e.stopPropagation()}>
-                            <select 
-                              value={selectedVersionMap[img.id]}
-                              onChange={(e) => handleVersionChange(img.id, e.target.value)}
-                              className="w-full bg-white border border-gray-200 rounded-lg py-1.5 px-3 text-xs font-bold text-gray-700 outline-none appearance-none pr-8 focus:ring-1 focus:ring-blue-500"
-                            >
-                              {img.versions.map(v => <option key={v.id} value={v.id}>{v.label.split('/')[0] || v.label}</option>)}
-                            </select>
-                            <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
-                          </div>
+                          <select value={selectedVersionMap[img.id]} onChange={(e) => handleVersionChange(img.id, e.target.value)} className="bg-white border border-gray-200 rounded-lg py-1.5 px-3 text-xs font-bold text-gray-700 outline-none">
+                            {img.versions.map(v => <option key={v.id} value={v.id}>{v.label.split('/')[0]}</option>)}
+                          </select>
                         </td>
-                        <td className="px-6 py-4">
-                          <span className="text-xs text-gray-500 font-medium">
-                            {img.versions.find(v => v.id === selectedVersionMap[img.id])?.size || 'N/A'}
-                          </span>
-                        </td>
+                        <td className="px-6 py-4 text-xs text-gray-500">{img.versions[0]?.size}</td>
                         <td className="px-6 py-4 text-right">
-                          <button 
-                            onClick={() => {
-                              if (imageCategory === 'custom') setSelectedCustomImageId(img.id);
-                              else if (imageCategory === 'shared') setSelectedSharedImageId(img.id);
-                              else setSelectedImageId(img.id);
-                              
-                              setIsImageModalOpen(false);
-                              showToast(`已选择镜像: ${img.name}`);
-                            }}
-                            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-1.5 rounded-lg text-xs font-bold shadow-sm transition-all active:scale-95"
-                          >
-                            选择此镜像
-                          </button>
+                          <button onClick={() => { if (imageCategory === 'custom') setSelectedCustomImageId(img.id); else if (imageCategory === 'shared') setSelectedSharedImageId(img.id); else setSelectedImageId(img.id); setIsImageModalOpen(false); }} className="bg-blue-600 text-white px-4 py-1.5 rounded-lg text-xs font-bold">选择此镜像</button>
                         </td>
                       </tr>
-                    )) : (
-                      <tr>
-                        <td colSpan={4} className="py-20 text-center text-gray-400 text-sm">暂无匹配镜像</td>
-                      </tr>
-                    )}
+                    ))}
                   </tbody>
                 </table>
               </div>
@@ -608,27 +570,23 @@ const InstanceDeployment: React.FC<InstanceDeploymentProps> = ({ onBack }) => {
         </div>
       )}
 
-      {/* Toast Notification */}
       {toast && (
-        <div className={`fixed top-24 left-1/2 -translate-x-1/2 z-[300] transition-all duration-300 transform ${
-          toast.show ? 'translate-y-0 opacity-100' : '-translate-y-12 opacity-0 pointer-events-none'
-        }`}>
+        <div className={`fixed top-24 left-1/2 -translate-x-1/2 z-[300] transition-all duration-300 transform ${toast.show ? 'translate-y-0 opacity-100' : '-translate-y-12 opacity-0'}`}>
           <div className="bg-blue-600 text-white px-6 py-3 rounded-2xl shadow-2xl flex items-center space-x-3 border border-blue-400">
-            <div className="bg-white/20 p-1.5 rounded-lg"><CheckCircle2 size={18} /></div>
-            <p className="text-sm font-bold tracking-tight">{toast.message}</p>
+            <CheckCircle2 size={18} />
+            <p className="text-sm font-bold">{toast.message}</p>
           </div>
         </div>
       )}
 
-      {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center space-x-4">
           <button onClick={onBack} className="p-2 hover:bg-white rounded-full transition-colors border border-transparent hover:border-gray-200">
             <ChevronLeft size={20} className="text-gray-600" />
           </button>
           <div className="flex flex-col">
-            <h1 className="text-2xl font-bold text-gray-800">定制 GPU 智算实例</h1>
-            <p className="text-xs text-gray-500 mt-0.5">控制台 / 算力服务 / 部署实例</p>
+            <h1 className="text-2xl font-bold text-gray-800">创建开发机</h1>
+            <p className="text-xs text-gray-500 mt-0.5">控制台 / GPU容器服务 / 创建开发机</p>
           </div>
         </div>
       </div>
@@ -636,12 +594,57 @@ const InstanceDeployment: React.FC<InstanceDeploymentProps> = ({ onBack }) => {
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
         <div className="lg:col-span-3 space-y-8">
           
+          {/* Node Pool Selection Banner */}
+          {!useExistingPool && (
+            <div className="bg-gradient-to-r from-blue-600/90 to-indigo-700/90 rounded-2xl p-6 text-white shadow-xl shadow-blue-100 flex items-center justify-between animate-in slide-in-from-top-4 duration-500">
+              <div className="flex items-center space-x-5">
+                <div className="bg-white/20 p-3 rounded-2xl backdrop-blur-sm">
+                   <Layers size={28} />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold">检测到已有包月专属节点池</h3>
+                  <p className="text-sm opacity-90 mt-1 leading-relaxed">
+                    您在 <span className="font-black underline decoration-blue-300 underline-offset-4 decoration-2">{PARTITIONS.find(p => p.id === PAID_NODE_POOL.regionId)?.name}</span> 拥有一个 <span className="font-black">4卡 H100</span> 的专属资源池。
+                    <br />
+                    <span className="inline-flex items-center mt-2 px-2 py-0.5 bg-white/10 rounded-md text-[11px] font-bold">
+                      <Zap size={12} className="mr-1 text-yellow-300" /> 
+                      当前池状态: 已占用 {PAID_NODE_POOL.usedCards} / {PAID_NODE_POOL.totalCards} 卡
+                    </span>
+                    <span className="ml-3 inline-flex items-center mt-2 px-2 py-0.5 bg-white/10 rounded-md text-[11px] font-bold">
+                      <Calendar size={12} className="mr-1 text-blue-200" />
+                      有效期至: {PAID_NODE_POOL.expiryDate}
+                    </span>
+                  </p>
+                </div>
+              </div>
+              <button 
+                onClick={() => { setUseExistingPool(true); showToast("已切换至包月节点池模式"); }}
+                className="bg-white text-blue-700 px-6 py-2.5 rounded-xl font-black text-sm hover:bg-blue-50 transition-all flex items-center space-x-2 shadow-lg shadow-black/10 active:scale-95 whitespace-nowrap"
+              >
+                <span>使用该节点池</span>
+                <ChevronRight size={18} />
+              </button>
+            </div>
+          )}
+
           {/* Section 1: GPU Specs & Cluster */}
-          <section className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm space-y-6">
+          <section className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm space-y-6 relative overflow-hidden">
+            {useExistingPool && (
+              <div className="absolute top-0 right-0 p-4 z-10">
+                <button 
+                  onClick={() => { setUseExistingPool(false); setGpuCount(1); }}
+                  className="flex items-center space-x-1.5 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-lg text-xs font-bold transition-all"
+                >
+                  <RotateCcw size={14} />
+                  <span>切换回普通模式</span>
+                </button>
+              </div>
+            )}
+
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-4">
                 <div className="flex items-center space-x-2">
-                  <div className="bg-blue-600 p-1.5 rounded-lg text-white shadow-sm shadow-blue-100">
+                  <div className="bg-blue-600 p-1.5 rounded-lg text-white shadow-sm">
                     <Cpu size={18} />
                   </div>
                   <h2 className="font-bold text-gray-800 whitespace-nowrap">1. 算力规格与集群配置</h2>
@@ -649,26 +652,22 @@ const InstanceDeployment: React.FC<InstanceDeploymentProps> = ({ onBack }) => {
                 
                 <div className="relative">
                   <button 
+                    disabled={useExistingPool}
                     onClick={() => setShowRegionDropdown(!showRegionDropdown)}
-                    className="flex items-center space-x-2 px-4 py-1.5 rounded-lg bg-blue-50 border border-blue-100 text-blue-700 font-bold text-sm hover:bg-blue-100 transition-all shadow-sm"
+                    className={`flex items-center space-x-2 px-4 py-1.5 rounded-lg font-bold text-sm transition-all shadow-sm ${
+                      useExistingPool 
+                      ? 'bg-gray-50 border border-gray-100 text-gray-400 cursor-not-allowed' 
+                      : 'bg-blue-50 border border-blue-100 text-blue-700 hover:bg-blue-100'
+                    }`}
                   >
                     <span>{activePartition?.name}</span>
-                    <ChevronDown size={14} className={`text-blue-400 transition-transform ${showRegionDropdown ? 'rotate-180' : ''}`} />
+                    {useExistingPool ? <Lock size={14} /> : <ChevronDown size={14} className={`text-blue-400 transition-transform ${showRegionDropdown ? 'rotate-180' : ''}`} />}
                   </button>
-                  {showRegionDropdown && (
-                    <div className="absolute top-full left-0 mt-2 w-64 bg-white border border-gray-100 shadow-2xl rounded-2xl p-2 z-50 animate-in fade-in slide-in-from-top-2">
+                  {!useExistingPool && showRegionDropdown && (
+                    <div className="absolute top-full left-0 mt-2 w-64 bg-white border border-gray-100 shadow-2xl rounded-2xl p-2 z-50">
                       {PARTITIONS.map(p => (
-                        <button
-                          key={p.id}
-                          onClick={() => { setSelectedPartition(p.id); setShowRegionDropdown(false); }}
-                          className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-left transition-colors ${
-                            selectedPartition === p.id ? 'bg-blue-50 text-blue-600' : 'text-gray-600 hover:bg-gray-50'
-                          }`}
-                        >
-                          <div>
-                            <p className="text-sm font-bold">{p.name}</p>
-                            <p className="text-[10px] opacity-60">{p.desc}</p>
-                          </div>
+                        <button key={p.id} onClick={() => { setSelectedPartition(p.id); setShowRegionDropdown(false); }} className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-left ${selectedPartition === p.id ? 'bg-blue-50 text-blue-600' : 'text-gray-600 hover:bg-gray-50'}`}>
+                          <div><p className="text-sm font-bold">{p.name}</p></div>
                           {selectedPartition === p.id && <Check size={16} />}
                         </button>
                       ))}
@@ -677,119 +676,77 @@ const InstanceDeployment: React.FC<InstanceDeploymentProps> = ({ onBack }) => {
                 </div>
               </div>
 
-              <button 
-                onClick={() => setShowAdvanced(!showAdvanced)}
-                className="flex items-center space-x-1.5 text-xs font-bold text-gray-400 hover:text-blue-600 transition-colors py-1 px-3 rounded-lg hover:bg-blue-50 border border-transparent hover:border-blue-100"
-              >
-                <Settings2 size={14} />
-                <span>高级配置（K8S集群）</span>
-                {showAdvanced ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-              </button>
+              {!useExistingPool && (
+                <button onClick={() => setShowAdvanced(!showAdvanced)} className="flex items-center space-x-1.5 text-xs font-bold text-gray-400 hover:text-blue-600 py-1 px-3 rounded-lg hover:bg-blue-50 transition-colors">
+                  <Settings2 size={14} />
+                  <span>高级配置（K8S集群）</span>
+                </button>
+              )}
             </div>
 
-            {showAdvanced && (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-8 animate-in fade-in slide-in-from-top-2 pt-2 border-t border-gray-50">
-                <div className="space-y-3">
-                  <label className="text-xs font-bold text-gray-500 uppercase tracking-wider flex items-center">
-                    <Globe size={14} className="mr-2 text-gray-400" /> 集群
-                  </label>
-                  <div className="relative">
-                    <select 
-                      value={selectedCluster}
-                      onChange={(e) => setSelectedCluster(e.target.value)}
-                      className="w-full bg-[#f8fafc] border border-gray-100 rounded-xl py-3 px-4 text-xs font-bold text-gray-700 outline-none focus:ring-2 focus:ring-blue-500 appearance-none pr-10"
-                    >
-                      <option value="c-sh-01">SH-Fast-H100-Auto-Scaling-01</option>
-                      <option value="c-bj-01">BJ-North-Cluster-GPU-30</option>
-                      <option value="c-sz-01">SZ-South-Edge-Cluster-02</option>
-                    </select>
-                    <ChevronDown size={16} className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
-                  </div>
-                </div>
-                <div className="space-y-3">
-                  <label className="text-xs font-bold text-gray-500 uppercase tracking-wider flex items-center">
-                    <Link size={14} className="mr-2 text-gray-400" /> 命名空间
-                  </label>
-                  <input 
-                    type="text"
-                    value={namespace}
-                    onChange={(e) => setNamespace(e.target.value)}
-                    placeholder="default"
-                    className="w-full bg-[#f8fafc] border border-gray-100 rounded-xl py-3 px-4 text-xs font-bold text-gray-700 outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-              </div>
-            )}
-
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {ALL_GPU_SPECS.map(gpu => (
-                <div key={gpu.id} className="relative h-full">
-                  <button
-                    onClick={() => handleGpuSelect(gpu)}
-                    className={`w-full p-4 rounded-xl border-2 text-left transition-all h-full flex flex-col group ${
-                      selectedGpu === gpu.id 
-                        ? 'border-blue-600 bg-white shadow-lg ring-1 ring-blue-600/10' 
-                        : gpu.availableIn.includes(selectedPartition) 
-                          ? 'border-gray-100 hover:border-blue-200 bg-white'
-                          : 'border-gray-50 opacity-60 hover:opacity-100 hover:border-yellow-200 bg-gray-50/20'
-                    }`}
-                  >
-                    <div className="flex justify-between items-start mb-2">
-                      <span className="font-bold text-gray-900">{gpu.name}</span>
-                      <span className="text-xs font-bold text-blue-600">¥{gpu.price}/h</span>
-                    </div>
-                    <div className="space-y-1 text-[11px] text-gray-500 mb-4">
-                      <p>显存: {gpu.vram}</p>
-                      <div className="flex items-center space-x-3">
-                        <span>CPU: {gpu.baseCores}core</span>
-                        <span>内存: {gpu.baseRam}GB</span>
+              {ALL_GPU_SPECS.map(gpu => {
+                const isLocked = useExistingPool && gpu.id !== PAID_NODE_POOL.gpuId;
+                const isSelected = selectedGpu === gpu.id;
+                
+                return (
+                  <div key={gpu.id} className="relative h-full">
+                    <button
+                      onClick={() => handleGpuSelect(gpu)}
+                      className={`w-full p-4 rounded-xl border-2 text-left transition-all h-full flex flex-col group ${
+                        isSelected 
+                          ? 'border-blue-600 bg-white shadow-lg ring-1 ring-blue-600/10' 
+                          : isLocked 
+                            ? 'border-gray-50 opacity-40 cursor-not-allowed bg-gray-50/10'
+                            : gpu.availableIn.includes(selectedPartition) 
+                              ? 'border-gray-100 hover:border-blue-200 bg-white'
+                              : 'border-gray-50 opacity-60 hover:opacity-100 hover:border-yellow-200 bg-gray-50/20'
+                      }`}
+                    >
+                      <div className="flex justify-between items-start mb-2">
+                        <span className="font-bold text-gray-900">{gpu.name}</span>
+                        {useExistingPool && isSelected ? (
+                          <span className="text-[10px] font-black text-blue-600 uppercase tracking-tight bg-blue-50 px-2 py-0.5 rounded border border-blue-100">已付费开机</span>
+                        ) : (
+                          <span className={`text-xs font-bold ${isLocked ? 'text-gray-300' : 'text-blue-600'}`}>¥{gpu.price}/h</span>
+                        )}
                       </div>
-                    </div>
+                      <div className="space-y-1 text-[11px] text-gray-500 mb-4">
+                        <p>显存: {gpu.vram}</p>
+                        <div className="flex items-center space-x-3">
+                          <span>CPU: {gpu.baseCores}core</span>
+                          <span>内存: {gpu.baseRam}GB</span>
+                        </div>
+                      </div>
 
-                    <div className="mt-auto pt-3 border-t border-gray-100/50">
-                      <div className="flex items-center space-x-3">
-                        <label className="text-[10px] font-bold text-gray-400 uppercase tracking-tighter shrink-0">驱动版本</label>
-                        <div className="relative flex-1" onClick={(e) => e.stopPropagation()}>
-                          <select 
-                            value={selectedDriver}
-                            onChange={(e) => setSelectedDriver(e.target.value)}
-                            disabled={!gpu.availableIn.includes(selectedPartition)}
-                            className={`w-full text-[10px] font-bold py-1 px-2 rounded-lg border outline-none appearance-none transition-colors ${
-                              selectedGpu === gpu.id 
-                              ? 'bg-[#f8fafc] border-gray-100 text-gray-700' 
-                              : 'bg-gray-50/80 border-gray-100 text-gray-600'
-                            }`}
-                          >
-                            {DRIVER_VERSIONS.map(v => <option key={v} value={v}>{v}</option>)}
-                          </select>
-                          <ChevronDown size={10} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                      <div className="mt-auto pt-3 border-t border-gray-100/50">
+                        <div className="flex items-center space-x-3">
+                          <label className="text-[10px] font-bold text-gray-400 uppercase shrink-0">驱动版本</label>
+                          <div className="relative flex-1" onClick={(e) => e.stopPropagation()}>
+                            <select 
+                              value={selectedDriver}
+                              onChange={(e) => setSelectedDriver(e.target.value)}
+                              disabled={isLocked || !gpu.availableIn.includes(selectedPartition)}
+                              className={`w-full text-[10px] font-bold py-1 px-2 rounded-lg border outline-none appearance-none transition-colors ${
+                                isSelected ? 'bg-[#f8fafc] border-gray-100 text-gray-700' : 'bg-gray-50 border-gray-100 text-gray-600'
+                              }`}
+                            >
+                              {DRIVER_VERSIONS.map(v => <option key={v} value={v}>{v}</option>)}
+                            </select>
+                            <ChevronDown size={10} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  </button>
-                  {pendingGpuId === gpu.id && (
-                    <div className="absolute inset-x-0 bottom-full mb-3 z-50">
-                      <div className="bg-white rounded-2xl shadow-2xl border border-gray-100 p-5 w-[280px] mx-auto relative animate-in zoom-in-95">
-                        <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-4 h-4 bg-white border-b border-r border-gray-100 rotate-45"></div>
-                        <div className="flex items-start space-x-3 mb-4">
-                          <AlertTriangle size={16} className="text-orange-500" />
-                          <p className="text-xs text-gray-600">当前分区不支持，是否切换至 {PARTITIONS.find(p => p.id === gpu.availableIn[0])?.name}？</p>
-                        </div>
-                        <div className="flex justify-end space-x-2">
-                          <button onClick={() => setPendingGpuId(null)} className="px-3 py-1.5 text-[11px] font-bold text-gray-400">取消</button>
-                          <button onClick={() => confirmSwitchPartition(gpu)} className="px-4 py-1.5 text-[11px] font-bold text-white bg-blue-600 rounded-lg">切换</button>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              ))}
+                    </button>
+                  </div>
+                );
+              })}
             </div>
 
             <div className="pt-2">
               <label className="text-xs font-bold text-gray-400 uppercase mb-3 block">卡数量</label>
               <div className="flex p-1 bg-gray-50 rounded-xl w-fit border border-gray-100">
-                {[1, 2, 3, 4, 8].map(num => (
+                {(useExistingPool ? [1, 2, 3] : [1, 2, 3, 4, 8]).map(num => (
                   <button 
                     key={num} 
                     onClick={() => setGpuCount(num)} 
@@ -801,14 +758,24 @@ const InstanceDeployment: React.FC<InstanceDeploymentProps> = ({ onBack }) => {
                   </button>
                 ))}
               </div>
+              {useExistingPool && (
+                <p className="mt-2 text-[10px] text-indigo-500 font-bold">
+                  * 专属池当前剩余可用: {PAID_NODE_POOL.totalCards - PAID_NODE_POOL.usedCards} 卡
+                </p>
+              )}
             </div>
 
-            <div className="bg-blue-50/50 border border-blue-100 rounded-xl px-4 py-3 flex items-center space-x-3 mt-4">
-              <div className="bg-blue-100 p-1.5 rounded-lg text-blue-600">
-                <Zap size={16} />
+            <div className={`border rounded-xl px-4 py-3 flex items-center space-x-3 mt-4 transition-colors ${
+              useExistingPool ? 'bg-indigo-50/50 border-indigo-100' : 'bg-blue-50/50 border-blue-100'
+            }`}>
+              <div className={`p-1.5 rounded-lg ${useExistingPool ? 'bg-indigo-100 text-indigo-600' : 'bg-blue-100 text-blue-600'}`}>
+                {useExistingPool ? <Layers size={16} /> : <Zap size={16} />}
               </div>
-              <p className="text-sm text-blue-900 font-medium">
-                当前所选：<span className="font-bold">{currentGpu?.name} * {gpuCount}</span> <span className="bg-blue-600 text-white px-2 py-0.5 rounded text-[10px] font-black mx-1 uppercase">CORE {scaledCores}</span>, 内存 <span className="font-bold">{scaledRam}GB</span>
+              <p className={`text-sm font-medium ${useExistingPool ? 'text-indigo-900' : 'text-blue-900'}`}>
+                当前所选：<span className="font-bold">{currentGpu?.name} * {gpuCount}</span> 
+                <span className={`text-white px-2 py-0.5 rounded text-[10px] font-black mx-2 uppercase ${useExistingPool ? 'bg-indigo-600' : 'bg-blue-600'}`}>CORE {scaledCores}</span>
+                内存 <span className="font-bold">{scaledRam}GB</span>
+                {useExistingPool && <span className="ml-3 text-indigo-500 font-bold">(专属节点池已付费，可立即开机)</span>}
               </p>
             </div>
           </section>
@@ -817,19 +784,14 @@ const InstanceDeployment: React.FC<InstanceDeploymentProps> = ({ onBack }) => {
           <section className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm space-y-6">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center space-x-2">
-                <div className="bg-blue-600 p-1.5 rounded-lg text-white shadow-sm shadow-blue-100">
-                  <HardDrive size={18} />
-                </div>
+                <div className="bg-blue-600 p-1.5 rounded-lg text-white shadow-sm"><HardDrive size={18} /></div>
                 <h2 className="font-bold text-gray-800">2. 存储配置</h2>
               </div>
             </div>
-
             <div className="space-y-4">
-              <div className="bg-white border border-gray-100 rounded-xl p-6 flex items-center justify-between shadow-sm">
+              <div className="bg-white border border-gray-100 rounded-xl p-6 flex items-center justify-between">
                 <div className="flex items-center space-x-4">
-                  <div className="p-1.5 bg-blue-50 rounded-lg text-blue-500">
-                    <HardDrive size={18} />
-                  </div>
+                  <div className="p-1.5 bg-blue-50 rounded-lg text-blue-500"><HardDrive size={18} /></div>
                   <div className="flex items-center space-x-4">
                     <span className="text-sm font-medium text-gray-900">系统盘 (Root SSD)</span>
                     <span className="text-sm text-gray-500">空间: 30GB</span>
@@ -837,133 +799,48 @@ const InstanceDeployment: React.FC<InstanceDeploymentProps> = ({ onBack }) => {
                   </div>
                 </div>
               </div>
-
               {extraStorage.length > 0 ? (
-                <div className="bg-white border border-gray-100 rounded-xl p-6 shadow-sm space-y-4 animate-in fade-in zoom-in-95 duration-200">
-                  <div className="flex items-center space-x-3 mb-6">
-                    <div className="p-1.5 bg-blue-50 rounded-lg text-blue-500">
-                      <Database size={18} />
-                    </div>
-                    <span className="text-sm font-bold text-gray-900">数据盘</span>
-                  </div>
-
+                <div className="bg-white border border-gray-100 rounded-xl p-6 space-y-4 shadow-sm animate-in fade-in">
+                  <div className="flex items-center space-x-3 mb-6"><div className="p-1.5 bg-blue-50 rounded-lg text-blue-500"><Database size={18} /></div><span className="text-sm font-bold text-gray-900">数据盘</span></div>
                   <div className="space-y-6">
                     {extraStorage.map((storage) => {
                       const typeInfo = STORAGE_TYPES.find(t => t.id === storage.type);
                       const existingVolumes = MOCK_EXISTING_VOLUMES[storage.type] || [];
-
                       return (
-                        <div key={storage.id} className="relative grid grid-cols-12 gap-4 items-end animate-in fade-in slide-in-from-top-1">
+                        <div key={storage.id} className="grid grid-cols-12 gap-4 items-end animate-in fade-in">
                           <div className="col-span-4 space-y-2">
-                            <div className="flex items-center space-x-2 mb-1">
-                              <label className="text-xs text-gray-400 font-medium">{typeInfo?.name.split(' (')[0]}名称</label>
-                              {storage.isNew && <span className="bg-green-50 text-green-600 px-1 rounded text-[9px] font-black uppercase">新建</span>}
-                            </div>
+                            <div className="flex items-center space-x-2 mb-1"><label className="text-xs text-gray-400 font-medium">名称</label></div>
                             <div className="flex items-center space-x-2">
                               <div className="relative flex-1">
                                 {storage.isNew ? (
-                                  <input 
-                                    type="text" 
-                                    value={storage.name}
-                                    onChange={(e) => updateStorage(storage.id, { name: e.target.value })}
-                                    className="w-full bg-white border border-blue-400 rounded-lg py-2 px-3 text-sm font-medium outline-none focus:ring-1 focus:ring-blue-500 transition-colors"
-                                    placeholder="输入硬盘名称"
-                                  />
+                                  <input type="text" value={storage.name} onChange={(e) => updateStorage(storage.id, { name: e.target.value })} className="w-full bg-white border border-blue-400 rounded-lg py-2 px-3 text-sm font-medium outline-none focus:ring-1 focus:ring-blue-500" placeholder="硬盘名称" />
                                 ) : (
-                                  <div className="relative">
-                                    <select 
-                                      value={storage.isInitial ? 'none' : storage.selectedVolumeId} 
-                                      onChange={(e) => {
-                                        const val = e.target.value;
-                                        if (val === 'new') updateStorage(storage.id, { isNew: true });
-                                        else if (val === 'none') return;
-                                        else updateStorage(storage.id, { selectedVolumeId: val });
-                                      }}
-                                      className={`w-full bg-white border rounded-lg py-2 px-3 text-sm font-medium outline-none appearance-none pr-10 transition-colors ${
-                                        storage.isInitial ? 'text-gray-400 border-gray-200 hover:border-blue-300' : 'text-gray-900 border-gray-200 hover:border-blue-400'
-                                      }`}
-                                    >
-                                      <option value="none">请选择</option>
-                                      <option value="new">创建新 {typeInfo?.name.split(' (')[0]}</option>
-                                      {existingVolumes.length > 0 && <optgroup label="挂载已有卷">
-                                        {existingVolumes.map(v => <option key={v.id} value={v.id}>{v.name} ({v.size}GB)</option>)}
-                                      </optgroup>}
-                                    </select>
-                                    <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
-                                  </div>
+                                  <select value={storage.isInitial ? 'none' : storage.selectedVolumeId} onChange={(e) => { const val = e.target.value; if (val === 'new') updateStorage(storage.id, { isNew: true }); else if (val !== 'none') updateStorage(storage.id, { selectedVolumeId: val }); }} className="w-full bg-white border border-gray-200 rounded-lg py-2 px-3 text-sm font-medium outline-none appearance-none pr-10">
+                                    <option value="none">请选择</option>
+                                    <option value="new">创建新硬盘</option>
+                                    {existingVolumes.map(v => <option key={v.id} value={v.id}>{v.name} ({v.size}GB)</option>)}
+                                  </select>
                                 )}
                               </div>
-                              <button 
-                                onClick={() => {
-                                  if (storage.isNew && existingVolumes.length > 0) {
-                                    updateStorage(storage.id, { isNew: false, isInitial: true, name: '' });
-                                  }
-                                }}
-                                className="p-2 text-blue-500 hover:bg-blue-50 rounded-lg transition-colors" 
-                                title="切换/刷新存储"
-                              >
-                                {storage.isNew && existingVolumes.length > 0 ? <RotateCcw size={16} /> : <RefreshCw size={16} />}
-                              </button>
                             </div>
                           </div>
-
                           <div className="col-span-3 space-y-2">
                             <label className="text-xs text-gray-400 font-medium">挂载路径</label>
-                            <input 
-                              type="text" 
-                              value={storage.mountPath} 
-                              onChange={(e) => updateStorage(storage.id, { mountPath: e.target.value })}
-                              placeholder="如：/root/data"
-                              className="w-full bg-white border border-gray-200 rounded-lg py-2 px-3 text-sm font-medium outline-none placeholder:text-gray-300 focus:border-blue-500 transition-colors"
-                            />
+                            <input type="text" value={storage.mountPath} onChange={(e) => updateStorage(storage.id, { mountPath: e.target.value })} placeholder="/root/data" className="w-full border border-gray-200 rounded-lg py-2 px-3 text-sm outline-none" />
                           </div>
-
                           <div className="col-span-2 space-y-2">
                             <label className="text-xs text-gray-400 font-medium">容量</label>
-                            <div className="relative">
-                              <input 
-                                type="number" 
-                                value={storage.size} 
-                                readOnly={!storage.isNew}
-                                onChange={(e) => updateStorage(storage.id, { size: parseInt(e.target.value) || 0 })}
-                                className={`w-full border rounded-lg py-2 px-3 text-sm font-medium outline-none pr-10 transition-colors ${
-                                  storage.isNew ? 'bg-white border-gray-200 focus:border-blue-500' : 'bg-gray-50 border-transparent text-gray-500'
-                                }`}
-                              />
-                              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-gray-400 uppercase">GB</span>
-                            </div>
+                            <input type="number" value={storage.size} readOnly={!storage.isNew} onChange={(e) => updateStorage(storage.id, { size: parseInt(e.target.value) || 0 })} className={`w-full border rounded-lg py-2 px-3 text-sm outline-none ${storage.isNew ? 'bg-white' : 'bg-gray-50'}`} />
                           </div>
-
-                          <div className="col-span-2 space-y-2 pb-2">
-                            <label className="text-xs text-gray-400 font-medium block">预估价格</label>
-                            {storage.isNew ? (
-                              <span className="text-sm font-bold text-blue-600">¥ {((typeInfo?.unitPrice || 0) * storage.size).toFixed(2)}/h</span>
-                            ) : (
-                              <span className="text-xs font-bold text-gray-400">—</span>
-                            )}
-                          </div>
-
-                          <div className="col-span-1 pb-1.5 text-right">
-                            <button 
-                              onClick={() => setExtraStorage(extraStorage.filter(s => s.id !== storage.id))}
-                              className="p-2 text-gray-300 hover:text-red-500 transition-colors rounded-lg hover:bg-red-50"
-                            >
-                              <X size={20} />
-                            </button>
-                          </div>
+                          <div className="col-span-1 pb-1.5 text-right"><button onClick={() => setExtraStorage(extraStorage.filter(s => s.id !== storage.id))} className="p-2 text-gray-300 hover:text-red-500"><X size={20} /></button></div>
                         </div>
                       )
                     })}
                   </div>
-                  
-                  <div className="mt-4">
-                    {renderMountButton()}
-                  </div>
+                  <div className="mt-4">{renderMountButton()}</div>
                 </div>
               ) : (
-                <div className="pt-2">
-                  {renderMountButton()}
-                </div>
+                <div className="pt-2">{renderMountButton()}</div>
               )}
             </div>
           </section>
@@ -972,258 +849,37 @@ const InstanceDeployment: React.FC<InstanceDeploymentProps> = ({ onBack }) => {
           <section className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm space-y-6">
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-2">
-                <div className="bg-blue-600 p-1.5 rounded-lg text-white shadow-sm shadow-blue-100"><Box size={18} /></div>
+                <div className="bg-blue-600 p-1.5 rounded-lg text-white shadow-sm"><Box size={18} /></div>
                 <h2 className="font-bold text-gray-800">3. 镜像选择与基础环境</h2>
               </div>
               <div className="flex space-x-1 bg-gray-100 p-1 rounded-xl">
-                {[
-                  { id: 'prebuilt', label: '预制镜像' },
-                  { id: 'custom', label: '自定义镜像' },
-                  { id: 'shared', label: '共享镜像' },
-                  { id: 'external', label: '外部镜像' }
-                ].map(cat => (
-                  <button 
-                    key={cat.id} 
-                    onClick={() => setImageCategory(cat.id)} 
-                    className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${imageCategory === cat.id ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500'}`}
-                  >
-                    {cat.label}
+                {['prebuilt', 'custom', 'shared', 'external'].map(cat => (
+                  <button key={cat} onClick={() => setImageCategory(cat)} className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${imageCategory === cat ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500'}`}>
+                    {cat === 'prebuilt' ? '预制镜像' : cat === 'custom' ? '自定义镜像' : cat === 'shared' ? '共享镜像' : '外部镜像'}
                   </button>
                 ))}
               </div>
             </div>
-
             {imageCategory === 'prebuilt' ? (
               <div className="space-y-6 animate-in fade-in">
-                {/* OS Grid Selection */}
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-4">
                   {IMAGES_BY_CAT.prebuilt.map((img) => (
-                    <button
-                      key={img.id}
-                      onClick={() => setSelectedImageId(img.id)}
-                      className={`flex flex-col items-center justify-center p-4 rounded-xl border-2 transition-all ${
-                        selectedImageId === img.id
-                          ? 'border-blue-500 bg-blue-50/50 shadow-sm'
-                          : 'border-gray-100 bg-white hover:border-gray-200'
-                      }`}
-                    >
-                      <div className="mb-3">
-                        {getOsIcon(img)}
-                      </div>
-                      <span className={`text-xs font-bold ${selectedImageId === img.id ? 'text-blue-600' : 'text-gray-700'}`}>
-                        {img.name}
-                      </span>
+                    <button key={img.id} onClick={() => setSelectedImageId(img.id)} className={`flex flex-col items-center justify-center p-4 rounded-xl border-2 transition-all ${selectedImageId === img.id ? 'border-blue-500 bg-blue-50/50' : 'border-gray-100 bg-white hover:border-gray-200'}`}>
+                      <div className="mb-3">{getOsIcon(img)}</div>
+                      <span className={`text-xs font-bold ${selectedImageId === img.id ? 'text-blue-600' : 'text-gray-700'}`}>{img.name}</span>
                     </button>
                   ))}
                 </div>
-
-                {/* Shared Version Selector for Prebuilt */}
                 <div className="bg-[#f8fafc] border border-gray-100 rounded-xl p-4 flex items-center space-x-4">
                   <div className="flex-1 relative">
-                    <select
-                      value={selectedVersionMap[selectedImageId]}
-                      onChange={(e) => handleVersionChange(selectedImageId, e.target.value)}
-                      className="w-full bg-white border border-gray-200 rounded-lg py-2.5 px-4 text-sm font-medium text-gray-700 outline-none focus:ring-2 focus:ring-blue-500 appearance-none pr-10"
-                    >
-                      {IMAGES_BY_CAT.prebuilt.find(img => img.id === selectedImageId)?.versions.map(v => (
-                        <option key={v.id} value={v.id}>{v.label}</option>
-                      ))}
+                    <select value={selectedVersionMap[selectedImageId]} onChange={(e) => handleVersionChange(selectedImageId, e.target.value)} className="w-full bg-white border border-gray-200 rounded-lg py-2.5 px-4 text-sm font-medium outline-none appearance-none pr-10">
+                      {IMAGES_BY_CAT.prebuilt.find(img => img.id === selectedImageId)?.versions.map(v => <option key={v.id} value={v.id}>{v.label}</option>)}
                     </select>
                     <ChevronDown size={18} className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
                   </div>
-                  {IMAGES_BY_CAT.prebuilt.find(img => img.id === selectedImageId)?.versions.find(v => v.id === selectedVersionMap[selectedImageId])?.size && (
-                    <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider whitespace-nowrap">
-                      预计大小: {IMAGES_BY_CAT.prebuilt.find(img => img.id === selectedImageId)?.versions.find(v => v.id === selectedVersionMap[selectedImageId])?.size}
-                    </div>
-                  )}
                 </div>
-              </div>
-            ) : imageCategory === 'custom' ? (
-              <div className="space-y-4 animate-in fade-in">
-                {activeImage ? (
-                  <div 
-                    onClick={() => setIsImageModalOpen(true)}
-                    className="p-5 rounded-2xl border-2 border-blue-400 bg-white shadow-md flex flex-col text-left transition-all cursor-pointer relative group animate-in slide-in-from-left-2"
-                  >
-                    <div className="absolute top-4 right-4 flex items-center space-x-2">
-                       <span className="bg-blue-100 text-blue-600 px-3 py-1 rounded-lg text-[11px] font-bold">
-                        私有镜像
-                      </span>
-                      <div className="p-1.5 bg-gray-50 text-gray-400 group-hover:text-blue-600 transition-colors rounded-lg">
-                        <RefreshCw size={14} />
-                      </div>
-                    </div>
-                    <div className="mb-1.5">
-                      <h4 className="text-xl font-bold text-gray-900">{activeImage.name}</h4>
-                    </div>
-                    <div className="flex items-center space-x-2 text-blue-500 text-sm font-medium">
-                       <span>{activeVersion?.label.split('/')[0] || activeVersion?.label}</span>
-                       <ChevronDown size={14} className="group-hover:translate-y-0.5 transition-transform" />
-                    </div>
-                  </div>
-                ) : (
-                  <button 
-                    onClick={() => setIsImageModalOpen(true)}
-                    className="w-full py-12 border-2 border-dashed border-gray-200 rounded-2xl flex flex-col items-center justify-center text-gray-400 hover:border-blue-400 hover:text-blue-600 hover:bg-blue-50/30 transition-all"
-                  >
-                    <Plus size={32} className="mb-2 opacity-30" />
-                    <p className="text-sm font-bold">从私有镜像库中选择</p>
-                  </button>
-                )}
-                
-                {activeImage && (
-                  <button 
-                    onClick={() => setIsImageModalOpen(true)}
-                    className="text-xs font-bold text-blue-600 hover:underline flex items-center space-x-1"
-                  >
-                    <span>重新选择镜像</span>
-                    <ChevronRight size={12} />
-                  </button>
-                )}
-              </div>
-            ) : imageCategory === 'shared' ? (
-              <div className="space-y-4 animate-in fade-in">
-                {activeImage ? (
-                  <div 
-                    onClick={() => setIsImageModalOpen(true)}
-                    className="p-5 rounded-2xl border-2 border-indigo-400 bg-white shadow-md flex flex-col text-left transition-all cursor-pointer relative group animate-in slide-in-from-left-2"
-                  >
-                    <div className="absolute top-4 right-4 flex items-center space-x-2">
-                       <span className="bg-indigo-100 text-indigo-600 px-3 py-1 rounded-lg text-[11px] font-bold">
-                        团队共享
-                      </span>
-                      <div className="p-1.5 bg-gray-50 text-gray-400 group-hover:text-indigo-600 transition-colors rounded-lg">
-                        <RefreshCw size={14} />
-                      </div>
-                    </div>
-                    <div className="mb-1.5">
-                      <h4 className="text-xl font-bold text-gray-900">{activeImage.name}</h4>
-                    </div>
-                    <div className="flex items-center space-x-2 text-indigo-500 text-sm font-medium">
-                       <span>{activeVersion?.label.split('/')[0] || activeVersion?.label}</span>
-                       <ChevronDown size={14} className="group-hover:translate-y-0.5 transition-transform" />
-                    </div>
-                  </div>
-                ) : (
-                  <button 
-                    onClick={() => setIsImageModalOpen(true)}
-                    className="w-full py-12 border-2 border-dashed border-gray-200 rounded-2xl flex flex-col items-center justify-center text-gray-400 hover:border-indigo-400 hover:text-indigo-600 hover:bg-indigo-50/30 transition-all"
-                  >
-                    <Plus size={32} className="mb-2 opacity-30" />
-                    <p className="text-sm font-bold">从团队镜像库中选择</p>
-                  </button>
-                )}
-                
-                {activeImage && (
-                  <button 
-                    onClick={() => setIsImageModalOpen(true)}
-                    className="text-xs font-bold text-indigo-600 hover:underline flex items-center space-x-1"
-                  >
-                    <span>重新选择镜像</span>
-                    <ChevronRight size={12} />
-                  </button>
-                )}
               </div>
             ) : null}
-
-            <div className="pt-4 border-t border-gray-50 space-y-6">
-              {['custom', 'shared'].includes(imageCategory) && (
-                <div className="space-y-6 animate-in fade-in">
-                  <div className="flex items-center justify-between">
-                    <label className="text-sm font-bold text-gray-700 flex items-center">
-                      <Terminal size={16} className="mr-2 text-blue-500" /> 启动命令 (STARTUP COMMAND)
-                    </label>
-                    <div className="flex items-center space-x-4">
-                      <button className="flex items-center space-x-1 text-xs text-gray-400 hover:text-blue-600">
-                        <BookOpen size={14} />
-                        <span>参数解释</span>
-                      </button>
-                      <button className="flex items-center space-x-1 text-xs text-gray-400 hover:text-blue-600">
-                        <Copy size={14} />
-                        <span>复制</span>
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="bg-white border border-gray-100 rounded-2xl p-6 space-y-8 shadow-sm">
-                    <div className="space-y-4">
-                       <div className="text-xs font-mono text-gray-400"># 1. Initialize 阶段：安装必要软件包，初始化环境配置</div>
-                       <div className="text-xs font-mono text-indigo-600">{'if [ -z "${EBCS_SYS_INITIALIZED}" ] || [ "${EBCS_SYS_INITIALIZED}" = "False" ]; then'}</div>
-                       
-                       <div className="pl-6 space-y-6">
-                          {renderCodeBlock('initPackage', '# Initialize Package: 安装必要软件包')}
-                          {renderCodeBlock('initSSH', '# Initialize Config: 初始化环境配置')}
-                       </div>
-                       
-                       <div className="text-xs font-mono text-indigo-600">fi</div>
-                    </div>
-
-                    <div className="space-y-4 pt-4 border-t border-gray-50">
-                       <div className="text-xs font-mono text-gray-400"># 2. Launch 阶段：启动 jupyter-lab 后台运行，启动 sshd 作为主进程运行</div>
-                       <div className="pl-6">
-                          {renderCodeBlock('launch', '# Launch: 启动服务')}
-                       </div>
-                    </div>
-                  </div>
-                  <p className="text-[10px] text-gray-400">留空则执行镜像默认 Entrypoint 或 CMD</p>
-                </div>
-              )}
-
-              {imageCategory === 'external' && (
-                <div className="bg-gray-50/50 border border-gray-100 rounded-xl p-6 space-y-6 animate-in slide-in-from-top-4">
-                  <div className="space-y-3">
-                    <label className="text-xs font-bold text-gray-500 uppercase tracking-wider flex items-center">
-                       <Globe size={14} className="mr-2 text-blue-500" /> 外部镜像地址
-                    </label>
-                    <input 
-                      type="text"
-                      value={externalUrl}
-                      onChange={(e) => setExternalUrl(e.target.value)}
-                      placeholder="registry.example.com/my-image:latest"
-                      className="w-full bg-white border border-gray-100 rounded-xl py-3 px-4 text-sm font-medium text-gray-700 outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
-
-                  <div className="flex items-center space-x-3">
-                    <button 
-                      onClick={() => setHasExternalAuth(!hasExternalAuth)}
-                      className={`w-10 h-6 rounded-full transition-colors relative ${hasExternalAuth ? 'bg-blue-600' : 'bg-gray-300'}`}
-                    >
-                      <div className={`absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform ${hasExternalAuth ? 'translate-x-4' : ''}`}></div>
-                    </button>
-                    <span className="text-sm font-bold text-gray-700">此镜像需要身份验证</span>
-                  </div>
-
-                  {hasExternalAuth && (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 animate-in zoom-in-95">
-                      <div className="space-y-2">
-                        <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">用户名</label>
-                        <div className="relative">
-                          <input 
-                            type="text"
-                            value={externalUsername}
-                            onChange={(e) => setExternalUsername(e.target.value)}
-                            className="w-full bg-white border border-gray-100 rounded-xl py-2 px-4 text-sm font-medium outline-none focus:ring-1 focus:ring-blue-500"
-                          />
-                        </div>
-                      </div>
-                      <div className="space-y-2">
-                        <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">密码 / Access Token</label>
-                        <div className="relative">
-                          <input 
-                            type="password"
-                            value={externalPassword}
-                            onChange={(e) => setExternalPassword(e.target.value)}
-                            className="w-full bg-white border border-gray-100 rounded-xl py-2 px-4 text-sm font-medium outline-none focus:ring-1 focus:ring-blue-500"
-                          />
-                          <Lock size={14} className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-300" />
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
           </section>
         </div>
 
@@ -1231,34 +887,41 @@ const InstanceDeployment: React.FC<InstanceDeploymentProps> = ({ onBack }) => {
           <div className="bg-white rounded-2xl border border-gray-100 shadow-lg p-6 sticky top-6 space-y-5 flex flex-col">
             <h3 className="text-base font-bold text-gray-900 border-b border-gray-50 pb-3">配置概要</h3>
 
+            {!useExistingPool && (
+              <div className="grid grid-cols-3 gap-1 bg-gray-50 p-1 rounded-xl">
+                <button onClick={() => setBillingCycle('hourly')} className={`relative py-2 px-1 text-[11px] font-bold rounded-lg ${billingCycle === 'hourly' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500'}`}>按量</button>
+                <button onClick={() => setBillingCycle('daily')} className={`relative py-2 px-1 text-[11px] font-bold rounded-lg ${billingCycle === 'daily' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500'}`}>包日</button>
+                <button onClick={() => setBillingCycle('monthly')} className={`relative py-2 px-1 text-[11px] font-bold rounded-lg ${billingCycle === 'monthly' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500'}`}>包月</button>
+              </div>
+            )}
+
+            {useExistingPool && (
+              <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-3 space-y-2">
+                <div className="flex items-center space-x-2 text-indigo-700">
+                  <Layers size={14} className="shrink-0" />
+                  <span className="text-xs font-bold">专属节点池开机模式</span>
+                </div>
+                <div className="flex items-center space-x-2 text-indigo-600 text-[10px]">
+                  <Calendar size={12} className="shrink-0" />
+                  <span className="font-bold">有效期至: {PAID_NODE_POOL.expiryDate}</span>
+                </div>
+              </div>
+            )}
+
             <div className="space-y-3.5 pt-1">
               <div className="flex justify-between items-center text-sm">
-                <div>
-                   <span className="text-gray-400 font-medium">资源分区: </span>
-                   <span className="text-gray-900 font-bold">{activePartition?.name}</span>
-                </div>
+                <div><span className="text-gray-400 font-medium">资源分区: </span><span className="text-gray-900 font-bold">{activePartition?.name}</span></div>
               </div>
-              
               <div className="flex justify-between items-center text-sm">
-                <div>
-                   <span className="text-gray-400 font-medium">规格: </span>
-                   <span className="text-gray-900 font-bold">{currentGpu?.name}*{gpuCount}</span>
-                </div>
-                <span className="text-[11px] font-bold text-orange-500">¥{gpuSubtotal.toFixed(1)}/小时</span>
+                <div><span className="text-gray-400 font-medium">规格: </span><span className="text-gray-900 font-bold">{currentGpu?.name}*{gpuCount}</span></div>
+                {useExistingPool ? (
+                  <span className="text-[10px] font-black text-indigo-500 uppercase">已付费</span>
+                ) : (
+                  <span className="text-[11px] font-bold text-orange-500">¥{(gpuSubtotal * periodMultiplier * discountFactor).toFixed(1)}{unitSuffix}</span>
+                )}
               </div>
-              
               <div className="flex justify-between items-center text-sm">
-                <div>
-                  <span className="text-gray-400 font-medium">驱动版本: </span>
-                  <span className="text-gray-900 font-bold">{selectedDriver.split(' ')[0]}</span>
-                </div>
-              </div>
-              
-              <div className="flex justify-between items-center text-sm">
-                <div>
-                  <span className="text-gray-400 font-medium">cpu/内存: </span>
-                  <span className="text-gray-900 font-bold">{scaledCores}core /{scaledRam}GB</span>
-                </div>
+                <div><span className="text-gray-400 font-medium">cpu/内存: </span><span className="text-gray-900 font-bold">{scaledCores}c /{scaledRam}G</span></div>
               </div>
             </div>
 
@@ -1266,65 +929,25 @@ const InstanceDeployment: React.FC<InstanceDeploymentProps> = ({ onBack }) => {
 
             <div className="space-y-3.5">
               <div className="flex justify-between items-center text-sm">
-                <div>
-                  <span className="text-gray-400 font-medium">系统盘: </span>
-                  <span className="text-gray-900 font-bold">30GB</span>
-                </div>
+                <div><span className="text-gray-400 font-medium">系统盘: </span><span className="text-gray-900 font-bold">30GB</span></div>
               </div>
-              
               {extraStorage.length > 0 && (
                 <div className="flex justify-between items-center text-sm">
-                  <div>
-                    <span className="text-gray-400 font-medium">数据盘: </span>
-                    <span className="text-gray-900 font-bold">{extraStorageSize}GB</span>
-                  </div>
-                  {storagePrice > 0 && <span className="text-[11px] font-bold text-orange-500">¥{storagePrice.toFixed(1)}/小时</span>}
+                  <div><span className="text-gray-400 font-medium">数据盘: </span><span className="text-gray-900 font-bold">{extraStorageSize}GB</span></div>
+                  {storagePrice > 0 && <span className="text-[11px] font-bold text-orange-500">¥{(storagePrice * periodMultiplier * discountFactor).toFixed(1)}{unitSuffix}</span>}
                 </div>
               )}
             </div>
 
             <hr className="border-gray-50" />
 
-            <div className="space-y-3.5">
-              <div className="flex justify-between items-center text-sm">
-                <div>
-                  <span className="text-gray-400 font-medium">镜像: </span>
-                  <span className="text-gray-900 font-bold truncate max-w-[120px]" title={imageCategory === 'external' ? '外部镜像' : activeImage?.name}>
-                    {imageCategory === 'external' ? '外部镜像' : (activeImage?.name || '未选择')}
-                  </span>
-                </div>
-              </div>
-              <div className="flex justify-between items-center text-sm">
-                <div>
-                  <span className="text-gray-400 font-medium">镜像版本: </span>
-                  <span className="text-gray-900 font-bold text-xs truncate max-w-[120px]">
-                    {imageCategory === 'external' ? (externalUrl || '未输入地址') : (activeVersion?.label.split('/')[0] || 'Base Version')}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            <hr className="border-gray-50" />
-
             <div className="space-y-4">
               <div className="flex justify-between items-center">
-                <span className="text-sm text-gray-900 font-bold">数量</span>
+                <span className="text-sm text-gray-900 font-bold">实例数量</span>
                 <div className="flex items-center border border-gray-200 rounded-lg overflow-hidden bg-white">
-                  <button 
-                    onClick={() => setInstanceCount(Math.max(1, instanceCount - 1))}
-                    className="p-2 hover:bg-gray-50 text-gray-400 transition-colors border-r border-gray-200"
-                  >
-                    <Minus size={14} />
-                  </button>
-                  <div className="px-5 py-2 text-sm font-bold text-gray-700 w-16 text-center">
-                    {instanceCount.toFixed(0)}
-                  </div>
-                  <button 
-                    onClick={() => setInstanceCount(instanceCount + 1)}
-                    className="p-2 hover:bg-gray-50 text-gray-400 transition-colors border-l border-gray-200"
-                  >
-                    <Plus size={14} />
-                  </button>
+                  <button onClick={() => setInstanceCount(Math.max(1, instanceCount - 1))} className="p-2 hover:bg-gray-50 text-gray-400 border-r border-gray-200"><Minus size={14} /></button>
+                  <div className="px-5 py-2 text-sm font-bold text-gray-700 w-16 text-center">{instanceCount}</div>
+                  <button onClick={() => setInstanceCount(instanceCount + 1)} className="p-2 hover:bg-gray-50 text-gray-400 border-l border-gray-200"><Plus size={14} /></button>
                 </div>
               </div>
             </div>
@@ -1335,16 +958,27 @@ const InstanceDeployment: React.FC<InstanceDeploymentProps> = ({ onBack }) => {
               <div className="flex items-baseline justify-between">
                 <span className="text-lg font-bold text-gray-900">合计</span>
                 <div className="flex items-center space-x-1">
-                  <span className="text-2xl font-black text-orange-500">¥ {totalPrice}</span>
-                  <span className="text-xs text-gray-400 font-bold">/小时</span>
-                  <Info size={14} className="text-gray-300 cursor-help ml-1" />
+                  {useExistingPool && totalPriceValue === 0 ? (
+                    <span className="text-2xl font-black text-indigo-500">¥ 0.00 <span className="text-xs ml-1">(已付费)</span></span>
+                  ) : (
+                    <>
+                      <span className="text-2xl font-black text-orange-500">¥ {totalPrice}</span>
+                      <span className="text-xs text-gray-400 font-bold">{unitSuffix}</span>
+                    </>
+                  )}
                 </div>
               </div>
-              
-              <button className="w-full py-3.5 bg-blue-600 text-white rounded-xl font-bold text-sm hover:bg-blue-700 shadow-lg shadow-blue-100 transition-all flex items-center justify-center space-x-2 active:scale-[0.98]">
-                <span>立即部署实例</span>
-                <ChevronRight size={18} />
-              </button>
+              <div className="space-y-3">
+                <button className={`w-full py-3.5 text-white rounded-xl font-bold text-sm shadow-lg transition-all flex items-center justify-center space-x-2 active:scale-[0.98] ${
+                  useExistingPool ? 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-100' : 'bg-blue-600 hover:bg-blue-700 shadow-blue-100'
+                }`}>
+                  <span>{useExistingPool ? '立即开机' : '立即部署开发机'}</span>
+                  <ChevronRight size={18} />
+                </button>
+                <p className="text-[10px] text-gray-400 leading-relaxed text-center">
+                  {useExistingPool ? '专属节点池开机不会产生额外费用（不含数据盘费用）。' : '包日及包月会自动专属节点池。如果删除开发机，可在专属节点池再次创建。'}
+                </p>
+              </div>
             </div>
           </div>
         </div>
