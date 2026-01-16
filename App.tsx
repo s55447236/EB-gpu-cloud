@@ -5,6 +5,7 @@ import InstanceList from './components/InstanceList';
 import ClusterManagement from './components/ClusterManagement';
 import Dashboard from './components/Dashboard';
 import InstanceDeployment from './components/InstanceDeployment';
+import DesignGuidelines from './components/DesignGuidelines';
 import { AlertCircle } from 'lucide-react';
 
 const App: React.FC = () => {
@@ -20,6 +21,8 @@ const App: React.FC = () => {
         return <InstanceDeployment onBack={() => setActiveTab('instances')} />;
       case 'clusters':
         return <ClusterManagement />;
+      case 'design-guidelines':
+        return <DesignGuidelines />;
       default:
         return (
           <div className="h-full flex flex-col items-center justify-center py-20 text-gray-400">

@@ -26,7 +26,8 @@ import {
   Lock,
   Terminal,
   Copy,
-  BookOpen
+  BookOpen,
+  Monitor
 } from 'lucide-react';
 
 interface InstanceDeploymentProps {
@@ -70,28 +71,79 @@ interface ImageItem {
   versions: ImageVersion[];
   author?: string;
   badge?: string;
+  iconType?: string;
+  iconColor?: string;
 }
 
 const IMAGES_BY_CAT: Record<string, ImageItem[]> = {
   prebuilt: [
     { 
-      id: 'pytorch', 
-      name: 'PyTorch', 
-      badge: '训练微调',
+      id: 'baidulinux', 
+      name: 'BaiduLinux', 
+      iconColor: 'bg-blue-600',
+      versions: [{ id: 'bd-1', label: '3.0 x86_64 (64bit) / m-h4rTECpu', size: '1.2GB' }] 
+    },
+    { 
+      id: 'centos', 
+      name: 'CentOS', 
+      iconColor: 'bg-purple-500',
       versions: [
-        { id: 'pt-270', label: 'PyTorch2.7.0/CUDA 12.1/Python 3.10/ubuntu 24.04', size: '12.4GB' },
-        { id: 'pt-210', label: 'PyTorch2.1.0/CUDA 12.1/Python 3.10/ubuntu 22.04', size: '12.4GB' },
-        { id: 'pt-201', label: 'PyTorch2.0.1/CUDA 11.8/Python 3.9/ubuntu 22.04', size: '10.8GB' }
+        { id: 'ct-7', label: 'CentOS 7.9 64bit / Kernel 3.10', size: '1.5GB' },
+        { id: 'ct-8', label: 'CentOS 8.4 64bit / Kernel 4.18', size: '1.8GB' }
       ] 
     },
     { 
-      id: 'tensorflow', 
-      name: 'TensorFlow', 
+      id: 'ubuntu', 
+      name: 'Ubuntu', 
+      iconColor: 'bg-orange-600',
       versions: [
-        { id: 'tf-215', label: 'TensorFlow2.15/CUDA 12.1/Python 3.10/ubuntu 22.04', size: '10.2GB' },
-        { id: 'tf-212', label: 'TensorFlow2.12/CUDA 11.8/Python 3.9/ubuntu 20.04', size: '9.5GB' }
+        { id: 'ub-22', label: 'Ubuntu 22.04 LTS 64bit / Kernel 5.15', size: '2.1GB' },
+        { id: 'ub-20', label: 'Ubuntu 20.04 LTS 64bit / Kernel 5.4', size: '1.9GB' },
+        { id: 'ub-24', label: 'Ubuntu 24.04 LTS 64bit / Kernel 6.8', size: '2.4GB' }
       ] 
-    }
+    },
+    { 
+      id: 'windows', 
+      name: 'Windows Server', 
+      iconColor: 'bg-sky-500',
+      versions: [
+        { id: 'win-2022', label: 'Windows Server 2022 Datacenter', size: '15GB' },
+        { id: 'win-2019', label: 'Windows Server 2019 Datacenter', size: '14GB' }
+      ] 
+    },
+    { 
+      id: 'rocky', 
+      name: 'Rocky Linux', 
+      iconColor: 'bg-emerald-600',
+      versions: [{ id: 'rk-9', label: 'Rocky Linux 9.2 Blue Onyx', size: '1.4GB' }] 
+    },
+    { 
+      id: 'alma', 
+      name: 'AlmaLinux', 
+      iconColor: 'bg-rose-500',
+      versions: [{ id: 'al-9', label: 'AlmaLinux 9.2 Sapphire Caracal', size: '1.4GB' }] 
+    },
+    { 
+      id: 'debian', 
+      name: 'Debian', 
+      iconColor: 'bg-red-600',
+      versions: [
+        { id: 'db-11', label: 'Debian 11.7 Bullseye', size: '1.1GB' },
+        { id: 'db-12', label: 'Debian 12.0 Bookworm', size: '1.2GB' }
+      ] 
+    },
+    { 
+      id: 'opensuse', 
+      name: 'OpenSUSE', 
+      iconColor: 'bg-green-500',
+      versions: [{ id: 'os-15', label: 'OpenSUSE Leap 15.5', size: '1.6GB' }] 
+    },
+    { 
+      id: 'fedora', 
+      name: 'Fedora', 
+      iconColor: 'bg-indigo-700',
+      versions: [{ id: 'fd-38', label: 'Fedora Server 38', size: '1.3GB' }] 
+    },
   ],
   custom: [
     { 
@@ -176,10 +228,17 @@ const InstanceDeployment: React.FC<InstanceDeploymentProps> = ({ onBack }) => {
   
   // Image Selection State
   const [imageCategory, setImageCategory] = useState('prebuilt');
-  const [selectedImageId, setSelectedImageId] = useState('pytorch');
+  const [selectedImageId, setSelectedImageId] = useState('ubuntu');
   const [selectedVersionMap, setSelectedVersionMap] = useState<Record<string, string>>({
-    'pytorch': 'pt-270',
-    'tensorflow': 'tf-215',
+    'ubuntu': 'ub-22',
+    'centos': 'ct-7',
+    'baidulinux': 'bd-1',
+    'windows': 'win-2022',
+    'rocky': 'rk-9',
+    'alma': 'al-9',
+    'debian': 'db-11',
+    'opensuse': 'os-15',
+    'fedora': 'fd-38',
     'my-model-base': 'v1-0',
     'team-diffusion': 'v1'
   });
@@ -407,6 +466,11 @@ const InstanceDeployment: React.FC<InstanceDeploymentProps> = ({ onBack }) => {
       </div>
     </div>
   );
+
+  const getOsIcon = (img: ImageItem) => {
+    if (img.id === 'windows') return <div className="p-1.5 bg-sky-50 text-sky-600 rounded-lg"><Monitor size={20} /></div>;
+    return <div className={`p-1.5 ${img.iconColor || 'bg-gray-100'} text-white rounded-lg`}><Zap size={20} /></div>;
+  };
 
   return (
     <div className="max-w-7xl mx-auto space-y-6 pb-20 relative">
@@ -795,70 +859,105 @@ const InstanceDeployment: React.FC<InstanceDeploymentProps> = ({ onBack }) => {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {imageCategory !== 'external' && imagesToShow.length > 0 ? imagesToShow.map((img: ImageItem) => {
-                const currentVersionId = selectedVersionMap[img.id];
-                const currentVersion = img.versions.find(v => v.id === currentVersionId);
-                const isSelected = selectedImageId === img.id;
-
-                return (
-                  <div 
-                    key={img.id} 
-                    onClick={() => setSelectedImageId(img.id)}
-                    className={`p-6 rounded-2xl border-2 flex flex-col text-left transition-all cursor-pointer relative group ${
-                      isSelected ? 'border-blue-400 bg-white shadow-md' : 'border-gray-100 bg-white hover:border-gray-200'
-                    }`}
-                  >
-                    {/* Badge */}
-                    {(img.badge || img.author) && (
-                      <div className="absolute top-4 right-4">
-                        <span className="bg-blue-100 text-blue-600 px-3 py-1 rounded-lg text-[11px] font-bold">
-                          {img.badge || img.author}
-                        </span>
+            {imageCategory === 'prebuilt' ? (
+              <div className="space-y-6 animate-in fade-in">
+                {/* OS Grid Selection */}
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-4">
+                  {IMAGES_BY_CAT.prebuilt.map((img) => (
+                    <button
+                      key={img.id}
+                      onClick={() => setSelectedImageId(img.id)}
+                      className={`flex flex-col items-center justify-center p-4 rounded-xl border-2 transition-all ${
+                        selectedImageId === img.id
+                          ? 'border-blue-500 bg-blue-50/50 shadow-sm'
+                          : 'border-gray-100 bg-white hover:border-gray-200'
+                      }`}
+                    >
+                      <div className="mb-3">
+                        {getOsIcon(img)}
                       </div>
-                    )}
-
-                    {/* Title & Core Version */}
-                    <div className="mb-4">
-                      <h4 className="text-xl font-bold text-gray-900">
-                        {img.name} {currentVersion?.label.split('/')[0].replace(img.name, '').trim()}
-                      </h4>
-                    </div>
-
-                    {/* Version Selector Row */}
-                    <div className="flex items-center group/version mb-6 relative" onClick={(e) => e.stopPropagation()}>
-                      <div className="relative flex-1">
-                        <select 
-                          value={currentVersionId}
-                          onChange={(e) => handleVersionChange(img.id, e.target.value)}
-                          className="w-full appearance-none bg-transparent text-blue-500 text-sm font-medium pr-8 outline-none cursor-pointer"
-                        >
-                          {img.versions.map(v => (
-                            <option key={v.id} value={v.id}>{v.label}</option>
-                          ))}
-                        </select>
-                        <ChevronDown size={18} className="absolute right-0 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none group-hover/version:text-blue-500 transition-colors" />
-                      </div>
-                    </div>
-
-                    {/* Footer: Size */}
-                    <div className="flex items-center space-x-2 text-gray-400">
-                      <HardDrive size={16} />
-                      <span className="text-sm font-medium">{currentVersion?.size}</span>
-                    </div>
-                  </div>
-                );
-              }) : imageCategory !== 'external' ? (
-                <div className="col-span-2 py-12 flex flex-col items-center justify-center text-gray-400 bg-gray-50 rounded-xl border border-dashed border-gray-200">
-                  <Box size={32} className="opacity-20 mb-2" />
-                  <p className="text-sm">该分类下暂无可用镜像</p>
+                      <span className={`text-xs font-bold ${selectedImageId === img.id ? 'text-blue-600' : 'text-gray-700'}`}>
+                        {img.name}
+                      </span>
+                    </button>
+                  ))}
                 </div>
-              ) : null}
-            </div>
 
-            {/* Additional Configs for selected Image (Startup Cmd Template) */}
+                {/* Shared Version Selector for Prebuilt */}
+                <div className="bg-[#f8fafc] border border-gray-100 rounded-xl p-4 flex items-center space-x-4">
+                  <div className="flex-1 relative">
+                    <select
+                      value={activeVersionId}
+                      onChange={(e) => handleVersionChange(selectedImageId, e.target.value)}
+                      className="w-full bg-white border border-gray-200 rounded-lg py-2.5 px-4 text-sm font-medium text-gray-700 outline-none focus:ring-2 focus:ring-blue-500 appearance-none pr-10"
+                    >
+                      {activeImage?.versions.map(v => (
+                        <option key={v.id} value={v.id}>{v.label}</option>
+                      ))}
+                    </select>
+                    <ChevronDown size={18} className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                  </div>
+                  {activeVersion?.size && (
+                    <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider whitespace-nowrap">
+                      预计大小: {activeVersion.size}
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {imageCategory !== 'external' && imagesToShow.length > 0 ? imagesToShow.map((img: ImageItem) => {
+                  const currentVersionId = selectedVersionMap[img.id];
+                  const isSelected = selectedImageId === img.id;
+
+                  return (
+                    <div 
+                      key={img.id} 
+                      onClick={() => setSelectedImageId(img.id)}
+                      className={`p-5 rounded-2xl border-2 flex flex-col text-left transition-all cursor-pointer relative group ${
+                        isSelected ? 'border-blue-400 bg-white shadow-md' : 'border-gray-100 bg-white hover:border-gray-200'
+                      }`}
+                    >
+                      {(img.badge || img.author) && (
+                        <div className="absolute top-4 right-4">
+                          <span className="bg-blue-100 text-blue-600 px-3 py-1 rounded-lg text-[11px] font-bold">
+                            {img.badge || img.author}
+                          </span>
+                        </div>
+                      )}
+
+                      <div className="mb-1.5">
+                        <h4 className="text-xl font-bold text-gray-900">
+                          {img.name}
+                        </h4>
+                      </div>
+
+                      <div className="flex items-center group/version mb-1 relative" onClick={(e) => e.stopPropagation()}>
+                        <div className="relative flex-1">
+                          <select 
+                            value={currentVersionId}
+                            onChange={(e) => handleVersionChange(img.id, e.target.value)}
+                            className="w-full appearance-none bg-transparent text-blue-500 text-sm font-medium pr-8 outline-none cursor-pointer"
+                          >
+                            {img.versions.map(v => (
+                              <option key={v.id} value={v.id}>{v.label}</option>
+                            ))}
+                          </select>
+                          <ChevronDown size={18} className="absolute right-0 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none group-hover/version:text-blue-500 transition-colors" />
+                        </div>
+                      </div>
+                    </div>
+                  );
+                }) : imageCategory !== 'external' ? (
+                  <div className="col-span-2 py-12 flex flex-col items-center justify-center text-gray-400 bg-gray-50 rounded-xl border border-dashed border-gray-200">
+                    <Box size={32} className="opacity-20 mb-2" />
+                    <p className="text-sm">该分类下暂无可用镜像</p>
+                  </div>
+                ) : null}
+              </div>
+            )}
+
             <div className="pt-4 border-t border-gray-50 space-y-6">
-              {/* Startup Command Editor (Visible for custom & shared) */}
               {['custom', 'shared'].includes(imageCategory) && (
                 <div className="space-y-6 animate-in fade-in">
                   <div className="flex items-center justify-between">
@@ -878,7 +977,6 @@ const InstanceDeployment: React.FC<InstanceDeploymentProps> = ({ onBack }) => {
                   </div>
 
                   <div className="bg-white border border-gray-100 rounded-2xl p-6 space-y-8 shadow-sm">
-                    {/* Stage 1: Initialize */}
                     <div className="space-y-4">
                        <div className="text-xs font-mono text-gray-400"># 1. Initialize 阶段：安装必要软件包，初始化环境配置</div>
                        <div className="text-xs font-mono text-indigo-600">{'if [ -z "${EBCS_SYS_INITIALIZED}" ] || [ "${EBCS_SYS_INITIALIZED}" = "False" ]; then'}</div>
@@ -891,7 +989,6 @@ const InstanceDeployment: React.FC<InstanceDeploymentProps> = ({ onBack }) => {
                        <div className="text-xs font-mono text-indigo-600">fi</div>
                     </div>
 
-                    {/* Stage 2: Launch */}
                     <div className="space-y-4 pt-4 border-t border-gray-50">
                        <div className="text-xs font-mono text-gray-400"># 2. Launch 阶段：启动 jupyter-lab 后台运行，启动 sshd 作为主进程运行</div>
                        <div className="pl-6">
@@ -903,7 +1000,6 @@ const InstanceDeployment: React.FC<InstanceDeploymentProps> = ({ onBack }) => {
                 </div>
               )}
 
-              {/* External Image Registry Details (Keep existing) */}
               {imageCategory === 'external' && (
                 <div className="bg-gray-50/50 border border-gray-100 rounded-xl p-6 space-y-6 animate-in slide-in-from-top-4">
                   <div className="space-y-3">
@@ -1052,7 +1148,7 @@ const InstanceDeployment: React.FC<InstanceDeploymentProps> = ({ onBack }) => {
                     <Minus size={14} />
                   </button>
                   <div className="px-5 py-2 text-sm font-bold text-gray-700 w-16 text-center">
-                    {instanceCount.toFixed(2)}
+                    {instanceCount.toFixed(0)}
                   </div>
                   <button 
                     onClick={() => setInstanceCount(instanceCount + 1)}
