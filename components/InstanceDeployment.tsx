@@ -27,7 +27,8 @@ import {
   Terminal,
   Copy,
   BookOpen,
-  Monitor
+  Monitor,
+  Search
 } from 'lucide-react';
 
 interface InstanceDeploymentProps {
@@ -154,6 +155,23 @@ const IMAGES_BY_CAT: Record<string, ImageItem[]> = {
         { id: 'v1-0', label: 'Base/CUDA 12.1/Python 3.10/v1.0-stable', size: '42.5GB' },
         { id: 'v1-1-beta', label: 'Base/CUDA 12.1/Python 3.10/v1.1-beta', size: '42.8GB' }
       ] 
+    },
+    { 
+      id: 'sd-xl-custom', 
+      name: 'Stable-Diffusion-XL-Custom', 
+      badge: '私有镜像',
+      versions: [
+        { id: 'v2-0', label: 'SDXL/WebUI/FP16/v2.0', size: '12.2GB' },
+        { id: 'v2-1', label: 'SDXL/WebUI/FP16/v2.1', size: '12.5GB' }
+      ] 
+    },
+    { 
+      id: 'llama-3-quant', 
+      name: 'Llama-3-70B-Quantized', 
+      badge: '私有镜像',
+      versions: [
+        { id: 'int8', label: 'Llama3/vLLM/Int8/Latest', size: '38.0GB' }
+      ] 
     }
   ],
   shared: [
@@ -240,8 +258,13 @@ const InstanceDeployment: React.FC<InstanceDeploymentProps> = ({ onBack }) => {
     'opensuse': 'os-15',
     'fedora': 'fd-38',
     'my-model-base': 'v1-0',
-    'team-diffusion': 'v1'
+    'team-diffusion': 'v1',
+    'sd-xl-custom': 'v2-0',
+    'llama-3-quant': 'int8'
   });
+
+  const [isImageModalOpen, setIsImageModalOpen] = useState(false);
+  const [imageSearchTerm, setImageSearchTerm] = useState('');
 
   // Startup Command Template States
   const [commandTemplates, setCommandTemplates] = useState(DEFAULT_TEMPLATES);
@@ -267,6 +290,10 @@ const InstanceDeployment: React.FC<InstanceDeploymentProps> = ({ onBack }) => {
   const [toast, setToast] = useState<{ message: string; show: boolean } | null>(null);
   const toastTimerRef = useRef<number | null>(null);
   const storageDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Maintain separate selected images for Custom and Shared to avoid mixing states
+  const [selectedCustomImageId, setSelectedCustomImageId] = useState<string>('my-model-base');
+  const [selectedSharedImageId, setSelectedSharedImageId] = useState<string>('team-diffusion');
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -373,10 +400,22 @@ const InstanceDeployment: React.FC<InstanceDeploymentProps> = ({ onBack }) => {
   };
 
   const currentGpu = ALL_GPU_SPECS.find(g => g.id === selectedGpu);
+  
+  // Handle current image selection based on category
   const imagesToShow = IMAGES_BY_CAT[imageCategory] || [];
-  const activeImage = imagesToShow.find(img => img.id === selectedImageId);
-  const activeVersionId = selectedVersionMap[selectedImageId];
-  const activeVersion = activeImage?.versions.find(v => v.id === activeVersionId);
+  let currentActiveId = selectedImageId;
+  if (imageCategory === 'custom') currentActiveId = selectedCustomImageId;
+  else if (imageCategory === 'shared') currentActiveId = selectedSharedImageId;
+
+  let activeImage = imagesToShow.find(img => img.id === currentActiveId);
+  
+  // If no image is selected for the current category, default to the first one available
+  if (!activeImage && imagesToShow.length > 0) {
+    activeImage = imagesToShow[0];
+  }
+
+  const activeVersionId = activeImage ? selectedVersionMap[activeImage.id] : undefined;
+  const activeVersion = activeImage?.versions.find(v => v.id === activeVersionId) || activeImage?.versions[0];
 
   const extraStorageSize = extraStorage.reduce((acc, s) => acc + s.size, 0);
   const storagePrice = extraStorage.reduce((acc, s) => {
@@ -472,8 +511,103 @@ const InstanceDeployment: React.FC<InstanceDeploymentProps> = ({ onBack }) => {
     return <div className={`p-1.5 ${img.iconColor || 'bg-gray-100'} text-white rounded-lg`}><Zap size={20} /></div>;
   };
 
+  const filteredModalImages = imagesToShow.filter(img => 
+    img.name.toLowerCase().includes(imageSearchTerm.toLowerCase())
+  );
+
   return (
     <div className="max-w-7xl mx-auto space-y-6 pb-20 relative">
+      {/* Image Selection Modal */}
+      {isImageModalOpen && (
+        <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white w-full max-w-4xl max-h-[80vh] rounded-3xl shadow-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-200">
+            <div className="px-8 py-6 border-b border-gray-100 flex items-center justify-between">
+              <div>
+                <h3 className="text-xl font-bold text-gray-900">选择{imageCategory === 'custom' ? '私有' : '团队共享'}镜像</h3>
+                <p className="text-sm text-gray-400 mt-1">从您的镜像库中选择适合的任务基础环境</p>
+              </div>
+              <button onClick={() => setIsImageModalOpen(false)} className="p-2 hover:bg-gray-50 rounded-full text-gray-400 hover:text-gray-900 transition-all">
+                <X size={24} />
+              </button>
+            </div>
+            
+            <div className="p-8 flex-1 overflow-y-auto space-y-6">
+              <div className="relative">
+                <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
+                <input 
+                  type="text" 
+                  placeholder="搜索镜像名称..."
+                  value={imageSearchTerm}
+                  onChange={(e) => setImageSearchTerm(e.target.value)}
+                  className="w-full bg-gray-50 border border-gray-200 rounded-2xl py-3 pl-12 pr-4 text-sm font-medium outline-none focus:ring-2 focus:ring-blue-500 transition-shadow"
+                />
+              </div>
+
+              <div className="bg-white border border-gray-100 rounded-2xl overflow-hidden">
+                <table className="w-full text-left">
+                  <thead>
+                    <tr className="bg-gray-50 text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                      <th className="px-6 py-4">镜像名称</th>
+                      <th className="px-6 py-4">版本选择</th>
+                      <th className="px-6 py-4">镜像大小</th>
+                      <th className="px-6 py-4 text-right">操作</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50">
+                    {filteredModalImages.length > 0 ? filteredModalImages.map(img => (
+                      <tr key={img.id} className="hover:bg-gray-50/50 transition-colors group">
+                        <td className="px-6 py-4">
+                          <div className="flex flex-col">
+                            <span className="font-bold text-gray-900 group-hover:text-blue-600 transition-colors">{img.name}</span>
+                            {img.badge && <span className="text-[10px] text-blue-500 font-bold mt-0.5">{img.badge}</span>}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4">
+                          <div className="relative w-48" onClick={(e) => e.stopPropagation()}>
+                            <select 
+                              value={selectedVersionMap[img.id]}
+                              onChange={(e) => handleVersionChange(img.id, e.target.value)}
+                              className="w-full bg-white border border-gray-200 rounded-lg py-1.5 px-3 text-xs font-bold text-gray-700 outline-none appearance-none pr-8 focus:ring-1 focus:ring-blue-500"
+                            >
+                              {img.versions.map(v => <option key={v.id} value={v.id}>{v.label.split('/')[0] || v.label}</option>)}
+                            </select>
+                            <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                          </div>
+                        </td>
+                        <td className="px-6 py-4">
+                          <span className="text-xs text-gray-500 font-medium">
+                            {img.versions.find(v => v.id === selectedVersionMap[img.id])?.size || 'N/A'}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 text-right">
+                          <button 
+                            onClick={() => {
+                              if (imageCategory === 'custom') setSelectedCustomImageId(img.id);
+                              else if (imageCategory === 'shared') setSelectedSharedImageId(img.id);
+                              else setSelectedImageId(img.id);
+                              
+                              setIsImageModalOpen(false);
+                              showToast(`已选择镜像: ${img.name}`);
+                            }}
+                            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-1.5 rounded-lg text-xs font-bold shadow-sm transition-all active:scale-95"
+                          >
+                            选择此镜像
+                          </button>
+                        </td>
+                      </tr>
+                    )) : (
+                      <tr>
+                        <td colSpan={4} className="py-20 text-center text-gray-400 text-sm">暂无匹配镜像</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Toast Notification */}
       {toast && (
         <div className={`fixed top-24 left-1/2 -translate-x-1/2 z-[300] transition-all duration-300 transform ${
@@ -887,75 +1021,110 @@ const InstanceDeployment: React.FC<InstanceDeploymentProps> = ({ onBack }) => {
                 <div className="bg-[#f8fafc] border border-gray-100 rounded-xl p-4 flex items-center space-x-4">
                   <div className="flex-1 relative">
                     <select
-                      value={activeVersionId}
+                      value={selectedVersionMap[selectedImageId]}
                       onChange={(e) => handleVersionChange(selectedImageId, e.target.value)}
                       className="w-full bg-white border border-gray-200 rounded-lg py-2.5 px-4 text-sm font-medium text-gray-700 outline-none focus:ring-2 focus:ring-blue-500 appearance-none pr-10"
                     >
-                      {activeImage?.versions.map(v => (
+                      {IMAGES_BY_CAT.prebuilt.find(img => img.id === selectedImageId)?.versions.map(v => (
                         <option key={v.id} value={v.id}>{v.label}</option>
                       ))}
                     </select>
                     <ChevronDown size={18} className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
                   </div>
-                  {activeVersion?.size && (
+                  {IMAGES_BY_CAT.prebuilt.find(img => img.id === selectedImageId)?.versions.find(v => v.id === selectedVersionMap[selectedImageId])?.size && (
                     <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider whitespace-nowrap">
-                      预计大小: {activeVersion.size}
+                      预计大小: {IMAGES_BY_CAT.prebuilt.find(img => img.id === selectedImageId)?.versions.find(v => v.id === selectedVersionMap[selectedImageId])?.size}
                     </div>
                   )}
                 </div>
               </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {imageCategory !== 'external' && imagesToShow.length > 0 ? imagesToShow.map((img: ImageItem) => {
-                  const currentVersionId = selectedVersionMap[img.id];
-                  const isSelected = selectedImageId === img.id;
-
-                  return (
-                    <div 
-                      key={img.id} 
-                      onClick={() => setSelectedImageId(img.id)}
-                      className={`p-5 rounded-2xl border-2 flex flex-col text-left transition-all cursor-pointer relative group ${
-                        isSelected ? 'border-blue-400 bg-white shadow-md' : 'border-gray-100 bg-white hover:border-gray-200'
-                      }`}
-                    >
-                      {(img.badge || img.author) && (
-                        <div className="absolute top-4 right-4">
-                          <span className="bg-blue-100 text-blue-600 px-3 py-1 rounded-lg text-[11px] font-bold">
-                            {img.badge || img.author}
-                          </span>
-                        </div>
-                      )}
-
-                      <div className="mb-1.5">
-                        <h4 className="text-xl font-bold text-gray-900">
-                          {img.name}
-                        </h4>
-                      </div>
-
-                      <div className="flex items-center group/version mb-1 relative" onClick={(e) => e.stopPropagation()}>
-                        <div className="relative flex-1">
-                          <select 
-                            value={currentVersionId}
-                            onChange={(e) => handleVersionChange(img.id, e.target.value)}
-                            className="w-full appearance-none bg-transparent text-blue-500 text-sm font-medium pr-8 outline-none cursor-pointer"
-                          >
-                            {img.versions.map(v => (
-                              <option key={v.id} value={v.id}>{v.label}</option>
-                            ))}
-                          </select>
-                          <ChevronDown size={18} className="absolute right-0 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none group-hover/version:text-blue-500 transition-colors" />
-                        </div>
+            ) : imageCategory === 'custom' ? (
+              <div className="space-y-4 animate-in fade-in">
+                {activeImage ? (
+                  <div 
+                    onClick={() => setIsImageModalOpen(true)}
+                    className="p-5 rounded-2xl border-2 border-blue-400 bg-white shadow-md flex flex-col text-left transition-all cursor-pointer relative group animate-in slide-in-from-left-2"
+                  >
+                    <div className="absolute top-4 right-4 flex items-center space-x-2">
+                       <span className="bg-blue-100 text-blue-600 px-3 py-1 rounded-lg text-[11px] font-bold">
+                        私有镜像
+                      </span>
+                      <div className="p-1.5 bg-gray-50 text-gray-400 group-hover:text-blue-600 transition-colors rounded-lg">
+                        <RefreshCw size={14} />
                       </div>
                     </div>
-                  );
-                }) : imageCategory !== 'external' ? (
-                  <div className="col-span-2 py-12 flex flex-col items-center justify-center text-gray-400 bg-gray-50 rounded-xl border border-dashed border-gray-200">
-                    <Box size={32} className="opacity-20 mb-2" />
-                    <p className="text-sm">该分类下暂无可用镜像</p>
+                    <div className="mb-1.5">
+                      <h4 className="text-xl font-bold text-gray-900">{activeImage.name}</h4>
+                    </div>
+                    <div className="flex items-center space-x-2 text-blue-500 text-sm font-medium">
+                       <span>{activeVersion?.label.split('/')[0] || activeVersion?.label}</span>
+                       <ChevronDown size={14} className="group-hover:translate-y-0.5 transition-transform" />
+                    </div>
                   </div>
-                ) : null}
+                ) : (
+                  <button 
+                    onClick={() => setIsImageModalOpen(true)}
+                    className="w-full py-12 border-2 border-dashed border-gray-200 rounded-2xl flex flex-col items-center justify-center text-gray-400 hover:border-blue-400 hover:text-blue-600 hover:bg-blue-50/30 transition-all"
+                  >
+                    <Plus size={32} className="mb-2 opacity-30" />
+                    <p className="text-sm font-bold">从私有镜像库中选择</p>
+                  </button>
+                )}
+                
+                {activeImage && (
+                  <button 
+                    onClick={() => setIsImageModalOpen(true)}
+                    className="text-xs font-bold text-blue-600 hover:underline flex items-center space-x-1"
+                  >
+                    <span>重新选择镜像</span>
+                    <ChevronRight size={12} />
+                  </button>
+                )}
               </div>
-            )}
+            ) : imageCategory === 'shared' ? (
+              <div className="space-y-4 animate-in fade-in">
+                {activeImage ? (
+                  <div 
+                    onClick={() => setIsImageModalOpen(true)}
+                    className="p-5 rounded-2xl border-2 border-indigo-400 bg-white shadow-md flex flex-col text-left transition-all cursor-pointer relative group animate-in slide-in-from-left-2"
+                  >
+                    <div className="absolute top-4 right-4 flex items-center space-x-2">
+                       <span className="bg-indigo-100 text-indigo-600 px-3 py-1 rounded-lg text-[11px] font-bold">
+                        团队共享
+                      </span>
+                      <div className="p-1.5 bg-gray-50 text-gray-400 group-hover:text-indigo-600 transition-colors rounded-lg">
+                        <RefreshCw size={14} />
+                      </div>
+                    </div>
+                    <div className="mb-1.5">
+                      <h4 className="text-xl font-bold text-gray-900">{activeImage.name}</h4>
+                    </div>
+                    <div className="flex items-center space-x-2 text-indigo-500 text-sm font-medium">
+                       <span>{activeVersion?.label.split('/')[0] || activeVersion?.label}</span>
+                       <ChevronDown size={14} className="group-hover:translate-y-0.5 transition-transform" />
+                    </div>
+                  </div>
+                ) : (
+                  <button 
+                    onClick={() => setIsImageModalOpen(true)}
+                    className="w-full py-12 border-2 border-dashed border-gray-200 rounded-2xl flex flex-col items-center justify-center text-gray-400 hover:border-indigo-400 hover:text-indigo-600 hover:bg-indigo-50/30 transition-all"
+                  >
+                    <Plus size={32} className="mb-2 opacity-30" />
+                    <p className="text-sm font-bold">从团队镜像库中选择</p>
+                  </button>
+                )}
+                
+                {activeImage && (
+                  <button 
+                    onClick={() => setIsImageModalOpen(true)}
+                    className="text-xs font-bold text-indigo-600 hover:underline flex items-center space-x-1"
+                  >
+                    <span>重新选择镜像</span>
+                    <ChevronRight size={12} />
+                  </button>
+                )}
+              </div>
+            ) : null}
 
             <div className="pt-4 border-t border-gray-50 space-y-6">
               {['custom', 'shared'].includes(imageCategory) && (
