@@ -43,7 +43,7 @@ const createNodes = (prefix: string, count: number): ClusterNode[] => {
     id: `node-${prefix}-${i}`,
     name: `${prefix}-node-0${i + 1}`,
     ip: `192.168.1.${10 + i}`,
-    gpuType: prefix === 'sh' ? 'NVIDIA A100' : 'NVIDIA H100',
+    gpuType: prefix === 'hb1' ? 'NVIDIA A100' : 'NVIDIA H100',
     gpuCount: 8,
     cpuUsage: Math.floor(Math.random() * 40) + 10,
     gpuUsage: Math.floor(Math.random() * 60) + 20,
@@ -53,34 +53,34 @@ const createNodes = (prefix: string, count: number): ClusterNode[] => {
 
 export const MOCK_CLUSTERS: Cluster[] = [
   { 
-    id: 'c-001', 
-    name: '上海华东-A集群', 
-    region: '华东1', 
+    id: 'c-hb1', 
+    name: '华北一区-默认集群', 
+    region: '华北一区', 
     nodes: 12, 
     totalGpu: 96, 
     usedGpu: 64, 
     status: 'Healthy',
-    nodeDetails: createNodes('sh', 6)
+    nodeDetails: createNodes('hb1', 6)
   },
   { 
-    id: 'c-002', 
-    name: '北京华北-B集群', 
-    region: '华北2', 
+    id: 'c-hb2', 
+    name: '华北二区-专属集群', 
+    region: '华北二区', 
     nodes: 8, 
     totalGpu: 32, 
     usedGpu: 30, 
     status: 'Warning',
-    nodeDetails: createNodes('bj', 4)
+    nodeDetails: createNodes('hb2', 4)
   },
   { 
-    id: 'c-003', 
-    name: '深圳华南-边缘集群', 
-    region: '华南1', 
+    id: 'c-nw1', 
+    name: '西北一区-边缘集群', 
+    region: '西北一区', 
     nodes: 4, 
     totalGpu: 16, 
     usedGpu: 2, 
     status: 'Healthy',
-    nodeDetails: createNodes('sz', 2)
+    nodeDetails: createNodes('nw1', 2)
   },
 ];
 
@@ -118,7 +118,7 @@ export const MOCK_INSTANCES: Instance[] = [
     memory: '64 GB',
     gpu: 'A100 (80G)',
     status: InstanceStatus.RUNNING,
-    cluster: '上海华东-A集群',
+    cluster: '华北一区-默认集群',
     createTime: '2024-05-20 14:22'
   },
   {
@@ -131,7 +131,7 @@ export const MOCK_INSTANCES: Instance[] = [
     memory: '512 GB',
     gpu: 'H100 x 8',
     status: InstanceStatus.STARTING,
-    cluster: '北京华北-B集群',
+    cluster: '华北二区-专属集群',
     createTime: '2024-05-21 09:15'
   },
   {
@@ -144,7 +144,7 @@ export const MOCK_INSTANCES: Instance[] = [
     memory: '32 GB',
     gpu: 'RTX 4090',
     status: InstanceStatus.STOPPED,
-    cluster: '上海华东-A集群',
+    cluster: '华北一区-默认集群',
     createTime: '2024-05-18 11:45'
   }
 ];
